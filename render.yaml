@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: tnc-inventory-dashboard
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: SHOPIFY_TOKEN
+        sync: false
