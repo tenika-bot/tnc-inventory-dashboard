@@ -1,1570 +1,173 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Inventory Management Dashboard</title>
-  <script src="papaparse.min.js"></script>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f4f8; color: #1a202c; min-height: 100vh; }
-
-    /* ── Header ── */
-    .header { background: #1a202c; color: white; padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; }
-    .header-left { display: flex; align-items: center; gap: 12px; }
-    .header h1 { font-size: 1.25rem; font-weight: 600; }
-    .header span.pill { font-size: 0.78rem; background: #4a5568; padding: 2px 8px; border-radius: 9999px; }
-    .live-badge { font-size: 0.75rem; background: #065f46; color: #6ee7b7; padding: 3px 10px; border-radius: 9999px; display: none; align-items: center; gap: 5px; }
-    .live-badge .dot { width: 7px; height: 7px; background: #34d399; border-radius: 50%; animation: pulse 2s infinite; }
-    @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
-
-    /* ── Main Tabs ── */
-    .tabs { background: white; border-bottom: 1px solid #e2e8f0; padding: 0 32px; display: flex; gap: 4px; }
-    .tab-btn { padding: 12px 20px; font-size: 0.875rem; font-weight: 500; border: none; background: none; cursor: pointer; color: #718096; border-bottom: 2px solid transparent; transition: all 0.15s; }
-    .tab-btn:hover { color: #2d3748; }
-    .tab-btn.active { color: #4f46e5; border-bottom-color: #4f46e5; }
-
-    /* ── Location Sub-tabs (Dashboard) ── */
-    .loc-tabs { display: flex; gap: 6px; margin-bottom: 24px; flex-wrap: wrap; }
-    .loc-btn { padding: 8px 18px; border-radius: 8px; font-size: 0.875rem; font-weight: 500; border: 2px solid #e2e8f0; background: white; cursor: pointer; color: #4a5568; transition: all 0.15s; }
-    .loc-btn:hover { border-color: #a5b4fc; color: #4f46e5; }
-    .loc-btn.active { background: #4f46e5; border-color: #4f46e5; color: white; }
-    .loc-btn.loc-usa.active { background: #3b82f6; border-color: #3b82f6; }
-    .loc-btn.loc-uk.active  { background: #dc2626; border-color: #dc2626; }
-    .loc-btn.loc-aus.active { background: #16a34a; border-color: #16a34a; }
-
-    /* ── Import Location Tabs ── */
-    .import-loc-tabs { display: flex; gap: 4px; margin-bottom: 20px; background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 5px; width: fit-content; }
-    .import-loc-btn { padding: 7px 20px; border-radius: 7px; font-size: 0.875rem; font-weight: 500; border: none; background: none; cursor: pointer; color: #718096; transition: all 0.15s; }
-    .import-loc-btn.active { background: white; color: #1a202c; box-shadow: 0 1px 3px rgba(0,0,0,0.1); font-weight: 600; }
-
-    /* ── Content ── */
-    .content { padding: 32px; max-width: 1600px; margin: 0 auto; }
-    .tab-panel { display: none; }
-    .tab-panel.active { display: block; }
-
-    /* ── Summary Cards ── */
-    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 24px; }
-    .card { background: white; border-radius: 10px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.07); }
-    .card .label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #718096; margin-bottom: 5px; }
-    .card .value { font-size: 1.7rem; font-weight: 700; }
-    .card.red .value   { color: #e53e3e; }
-    .card.amber .value { color: #d97706; }
-    .card.green .value { color: #059669; }
-    .card.blue .value  { color: #3b82f6; }
-
-    /* ── Per-location mini summary (ALL view) ── */
-    .loc-summary-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
-    .loc-summary-card { background: white; border-radius: 10px; padding: 16px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.07); border-top: 4px solid #e2e8f0; cursor: pointer; transition: box-shadow 0.15s; }
-    .loc-summary-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-    .loc-summary-card.loc-usa { border-top-color: #3b82f6; }
-    .loc-summary-card.loc-uk  { border-top-color: #dc2626; }
-    .loc-summary-card.loc-aus { border-top-color: #16a34a; }
-    .loc-summary-card h4 { font-size: 1rem; font-weight: 700; margin-bottom: 10px; }
-    .loc-mini-stats { display: flex; gap: 12px; flex-wrap: wrap; }
-    .loc-mini-stat { font-size: 0.8rem; display: flex; align-items: center; gap: 4px; }
-    .loc-mini-stat .dot { width: 8px; height: 8px; border-radius: 50%; }
-    .dot-red   { background: #ef4444; }
-    .dot-amber { background: #f59e0b; }
-    .dot-green { background: #10b981; }
-
-    /* ── Location Section (ALL view) ── */
-    .loc-section { margin-bottom: 28px; }
-    .loc-section-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; border-radius: 10px 10px 0 0; color: white; font-weight: 600; font-size: 0.95rem; cursor: pointer; user-select: none; }
-    .loc-section-header.loc-usa { background: #3b82f6; }
-    .loc-section-header.loc-uk  { background: #dc2626; }
-    .loc-section-header.loc-aus { background: #16a34a; }
-    .loc-section-body { background: white; border-radius: 0 0 10px 10px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
-    .loc-section-body.collapsed { display: none; }
-
-    /* ── Tables ── */
-    .table-wrap { background: white; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.07); overflow: hidden; }
-    .table-header { padding: 16px 20px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; }
-    .table-header h2 { font-size: 1rem; font-weight: 600; }
-    table { width: 100%; border-collapse: collapse; }
-    th { padding: 9px 14px; text-align: left; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #718096; background: #f7fafc; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
-    td { padding: 10px 14px; font-size: 0.84rem; border-bottom: 1px solid #f0f4f8; vertical-align: middle; }
-    tr:last-child td { border-bottom: none; }
-    tr.row-critical { background: #fff5f5; }
-    tr.row-warning  { background: #fffbeb; }
-    tr.row-ok       { background: white; }
-    tr:hover td { filter: brightness(0.97); }
-
-    /* ── Badges ── */
-    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 9999px; font-size: 0.72rem; font-weight: 600; white-space: nowrap; }
-    .badge-critical { background: #fee2e2; color: #c53030; }
-    .badge-warning  { background: #fef3c7; color: #b45309; }
-    .badge-ok       { background: #d1fae5; color: #047857; }
-    .badge-nodata   { background: #e2e8f0; color: #718096; }
-    .badge-cny      { background: #fce7f3; color: #be185d; }
-    .badge-bf       { background: #ede9fe; color: #6d28d9; }
-
-    /* ── Forms / Settings ── */
-    .section { background: white; border-radius: 10px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.07); margin-bottom: 20px; }
-    .section h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid #e2e8f0; }
-    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
-    .form-group { display: flex; flex-direction: column; gap: 5px; }
-    .form-group label { font-size: 0.78rem; font-weight: 600; color: #4a5568; text-transform: uppercase; letter-spacing: 0.04em; }
-    .form-group input, .form-group select, .form-group textarea { border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 12px; font-size: 0.875rem; transition: border-color 0.15s; background: white; }
-    .form-group input:focus, .form-group select:focus, .form-group textarea:focus { outline: none; border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,0.1); }
-    .form-group small { font-size: 0.72rem; color: #a0aec0; }
-    .toggle-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-    .toggle-row input[type=checkbox] { width: 16px; height: 16px; cursor: pointer; accent-color: #4f46e5; }
-    .toggle-row label { font-size: 0.875rem; font-weight: 500; cursor: pointer; }
-
-    /* ── Buttons ── */
-    .btn { padding: 8px 18px; border-radius: 7px; font-size: 0.875rem; font-weight: 500; border: none; cursor: pointer; transition: all 0.15s; }
-    .btn-primary   { background: #4f46e5; color: white; }
-    .btn-primary:hover { background: #4338ca; }
-    .btn-secondary { background: #e2e8f0; color: #2d3748; }
-    .btn-secondary:hover { background: #cbd5e0; }
-    .btn-danger    { background: #fee2e2; color: #c53030; }
-    .btn-danger:hover { background: #fecaca; }
-    .btn-green     { background: #d1fae5; color: #047857; }
-    .btn-green:hover { background: #a7f3d0; }
-    .btn-sm { padding: 5px 12px; font-size: 0.78rem; }
-
-    /* ── Upload Zones ── */
-    .upload-zone { border: 2px dashed #cbd5e0; border-radius: 10px; padding: 28px; text-align: center; cursor: pointer; transition: all 0.15s; }
-    .upload-zone:hover, .upload-zone.dragover { border-color: #4f46e5; background: #f5f3ff; }
-    .upload-zone .icon { font-size: 1.8rem; margin-bottom: 6px; }
-    .upload-zone p { font-size: 0.85rem; color: #718096; }
-    .upload-zone strong { color: #4f46e5; }
-    .upload-success { border-color: #10b981 !important; background: #f0fdf4 !important; }
-    .upload-success p { color: #047857 !important; }
-
-    /* ── Alerts ── */
-    .alert { padding: 11px 14px; border-radius: 8px; font-size: 0.84rem; margin-bottom: 14px; display: flex; align-items: flex-start; gap: 8px; }
-    .alert-info    { background: #ebf4ff; color: #2c5282; border-left: 4px solid #3b82f6; }
-    .alert-warn    { background: #fffbeb; color: #92400e; border-left: 4px solid #f59e0b; }
-    .alert-success { background: #f0fdf4; color: #14532d; border-left: 4px solid #10b981; }
-    .alert-purple  { background: #f5f3ff; color: #4c1d95; border-left: 4px solid #7c3aed; }
-
-    /* ── Progress bar ── */
-    .progress-wrap { width: 100%; background: #e2e8f0; border-radius: 9999px; height: 6px; overflow: hidden; min-width: 70px; }
-    .progress-bar  { height: 100%; border-radius: 9999px; transition: width 0.3s; }
-
-    /* ── Days colour ── */
-    .days-critical { color: #c53030; font-weight: 700; }
-    .days-warning  { color: #b45309; font-weight: 600; }
-    .days-ok       { color: #047857; }
-
-    /* ── Seasonal bar ── */
-    .seasonal-bar { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 9px 14px; margin-bottom: 16px; font-size: 0.84rem; color: #92400e; display: flex; align-items: center; gap: 8px; }
-    .seasonal-bar.cny { background: #fdf2f8; border-color: #f9a8d4; color: #831843; }
-
-    /* ── Empty ── */
-    .empty { text-align: center; padding: 48px 24px; color: #a0aec0; }
-    .empty .icon { font-size: 2.5rem; margin-bottom: 10px; }
-    .empty h3 { font-size: 0.95rem; font-weight: 600; color: #718096; margin-bottom: 5px; }
-    .empty p { font-size: 0.84rem; }
-
-    /* ── Inventory manual entry ── */
-    .inv-table input { width: 90px; padding: 4px 8px; border: 1px solid #e2e8f0; border-radius: 5px; font-size: 0.84rem; text-align: right; }
-
-    @media (max-width: 900px) {
-      .content { padding: 16px; }
-      .loc-summary-row { grid-template-columns: 1fr; }
-      .cards { grid-template-columns: 1fr 1fr; }
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TNC Inventory Dashboard</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f4f8; color: #1a202c; }
+.header { background: #1a202c; color: white; padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; }
+.header h1 { font-size: 1.2rem; font-weight: 700; }
+.header .badge { font-size: 0.75rem; background: #065f46; color: #6ee7b7; padding: 3px 10px; border-radius: 9999px; }
+.tabs { background: white; border-bottom: 1px solid #e2e8f0; padding: 0 24px; display: flex; gap: 4px; }
+.tab { padding: 12px 20px; font-size: 0.875rem; font-weight: 500; border: none; background: none; cursor: pointer; color: #718096; border-bottom: 3px solid transparent; }
+.tab.active { color: #4f46e5; border-bottom-color: #4f46e5; }
+.content { padding: 24px; max-width: 1400px; margin: 0 auto; }
+.loading { text-align: center; padding: 80px; color: #718096; }
+.loading h2 { margin-bottom: 8px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 24px; }
+.card { background: white; border-radius: 10px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.07); }
+.card .label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #718096; margin-bottom: 4px; }
+.card .value { font-size: 1.8rem; font-weight: 800; }
+.card.red .value { color: #e53e3e; }
+.card.amber .value { color: #d97706; }
+.card.green .value { color: #059669; }
+.card.blue .value { color: #3b82f6; }
+.table-wrap { background: white; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.07); overflow: hidden; }
+.table-header { padding: 16px 20px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
+.table-header h2 { font-size: 1rem; font-weight: 600; }
+.refresh-btn { background: #4f46e5; color: white; border: none; padding: 7px 16px; border-radius: 6px; font-size: 0.8rem; cursor: pointer; }
+table { width: 100%; border-collapse: collapse; }
+th { padding: 10px 14px; text-align: left; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #718096; background: #f7fafc; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
+td { padding: 10px 14px; font-size: 0.84rem; border-bottom: 1px solid #f0f4f8; }
+tr:last-child td { border-bottom: none; }
+tr.critical { background: #fff5f5; }
+tr.warning { background: #fffbeb; }
+.badge-critical { background: #fee2e2; color: #c53030; padding: 2px 8px; border-radius: 9999px; font-size: 0.72rem; font-weight: 700; }
+.badge-warning { background: #fef3c7; color: #b45309; padding: 2px 8px; border-radius: 9999px; font-size: 0.72rem; font-weight: 700; }
+.badge-ok { background: #d1fae5; color: #047857; padding: 2px 8px; border-radius: 9999px; font-size: 0.72rem; font-weight: 700; }
+.days-red { color: #c53030; font-weight: 700; }
+.days-amber { color: #b45309; font-weight: 600; }
+.days-green { color: #047857; }
+.updated { font-size: 0.75rem; color: #a0aec0; }
+</style>
 </head>
 <body>
 
 <div class="header">
-  <div class="header-left">
-    <div>📦</div>
-    <h1>Inventory Management Dashboard</h1>
-    <span class="pill">Beta</span>
-  </div>
-  <div id="live-badge" class="live-badge"><span class="dot"></span> Live data</div>
+  <h1>📦 TNC Inventory Dashboard</h1>
+  <span class="badge" id="status-badge">Loading...</span>
 </div>
 
 <div class="tabs">
-  <button class="tab-btn active" data-tab="dashboard">📊 Dashboard</button>
-  <button class="tab-btn" data-tab="import">📁 Import Data</button>
-  <button class="tab-btn" data-tab="settings">⚙️ Settings</button>
-  <button class="tab-btn" data-tab="report">📋 Order Report</button>
+  <button class="tab active" onclick="showTab('ALL')">🌍 All</button>
+  <button class="tab" onclick="showTab('USA')">🇺🇸 USA</button>
+  <button class="tab" onclick="showTab('UK')">🇬🇧 UK</button>
+  <button class="tab" onclick="showTab('AUS')">🇦🇺 Australia</button>
 </div>
 
 <div class="content">
-
-  <!-- ═══════════════════════════════════ DASHBOARD -->
-  <div id="tab-dashboard" class="tab-panel active">
-    <div id="autoload-banner"></div>
-    <div id="seasonal-alerts"></div>
-
-    <!-- Location filter -->
-    <div class="loc-tabs">
-      <button class="loc-btn active" data-loc="ALL" onclick="setDashboardLoc('ALL')">🌍 All Locations</button>
-      <button class="loc-btn loc-usa"  data-loc="USA" onclick="setDashboardLoc('USA')">🇺🇸 USA</button>
-      <button class="loc-btn loc-uk"   data-loc="UK"  onclick="setDashboardLoc('UK')">🇬🇧 UK</button>
-      <button class="loc-btn loc-aus"  data-loc="AUS" onclick="setDashboardLoc('AUS')">🇦🇺 Australia</button>
-      <span style="margin-left:auto;font-size:0.78rem;color:#718096;align-self:center;" id="last-updated-label"></span>
-      <button class="btn btn-secondary btn-sm" onclick="renderDashboard()">↻ Refresh</button>
-    </div>
-
-    <div id="dashboard-content"></div>
+  <div id="dashboard">
+    <div class="loading"><h2>Loading inventory data...</h2><p>This may take a moment on first load</p></div>
   </div>
-
-  <!-- ═══════════════════════════════════ IMPORT DATA -->
-  <div id="tab-import" class="tab-panel">
-    <div id="import-mode-banner"></div>
-
-    <!-- Location selector -->
-    <div class="section" style="padding:16px 24px;">
-      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
-        <span style="font-size:0.875rem;font-weight:600;color:#4a5568;">Importing data for:</span>
-        <div class="import-loc-tabs" id="import-loc-tabs">
-          <button class="import-loc-btn" data-iloc="USA" onclick="setImportLoc('USA')">🇺🇸 USA</button>
-          <button class="import-loc-btn active" data-iloc="UK"  onclick="setImportLoc('UK')">🇬🇧 UK</button>
-          <button class="import-loc-btn" data-iloc="AUS" onclick="setImportLoc('AUS')">🇦🇺 Australia</button>
-        </div>
-        <span style="font-size:0.8rem;color:#718096;">All uploads and paste updates below will be applied to the selected location.</span>
-      </div>
-    </div>
-
-    <!-- Paste Stock Update -->
-    <div class="section" style="border:2px solid #4f46e5;">
-      <h3 style="color:#4f46e5;">📋 Paste Stock Update <span style="font-size:0.75rem;font-weight:400;color:#718096;text-transform:none;letter-spacing:0;">— quickest way to update stock levels</span></h3>
-      <p style="font-size:0.85rem;color:#718096;margin-bottom:14px;">
-        Paste your stock count in the format you receive it (e.g. <code>Spray - 1,742</code>). Labels are mapped to SKUs via the aliases table in Settings.
-        Data will be applied to: <strong id="paste-loc-label">🇬🇧 UK</strong>
-      </p>
-      <textarea id="stock-paste-input" rows="16"
-        placeholder="10g - 0&#10;30g - 0&#10;Spray - 1,742&#10;XL Spray - 208&#10;Balm - 559&#10;Foam - 434&#10;Soap - 8,695&#10;Scrub - 961&#10;Glow - 600&#10;Oil - 459&#10;SPF - 898&#10;FDA Cream - 8,902&#10;Poster - 154&#10;travel bag - 1,801"
-        style="width:100%;border:1px solid #e2e8f0;border-radius:8px;padding:12px;font-family:monospace;font-size:0.875rem;resize:vertical;line-height:1.6;"></textarea>
-      <div style="display:flex;gap:10px;margin-top:12px;align-items:center;flex-wrap:wrap;">
-        <button class="btn btn-primary" onclick="parseStockPaste()">Apply Stock Update →</button>
-        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('stock-paste-input').value=''">Clear</button>
-        <span id="paste-result-msg" style="font-size:0.85rem;display:none;"></span>
-      </div>
-      <div id="paste-preview" style="margin-top:14px;display:none;"></div>
-    </div>
-
-    <!-- Shopify Orders -->
-    <div class="section">
-      <h3>1 · Shopify Orders Export</h3>
-      <div class="alert alert-info">
-        In Shopify admin: <strong>Orders → Export → All time → Export orders (CSV)</strong>. Make sure you export from the correct store for the selected location.
-      </div>
-      <div class="upload-zone" id="shopify-zone" onclick="document.getElementById('shopify-file').click()">
-        <div class="icon">🛍️</div>
-        <p><strong>Click to upload</strong> or drag &amp; drop Shopify orders CSV</p>
-        <p style="margin-top:4px;font-size:0.75rem;" id="shopify-zone-loc">Will be imported for: 🇬🇧 UK</p>
-      </div>
-      <input type="file" id="shopify-file" accept=".csv" style="display:none" />
-      <div id="shopify-status" style="margin-top:10px;"></div>
-    </div>
-
-    <!-- Zoho Invoices -->
-    <div class="section">
-      <h3>2 · Zoho Invoices Export <span style="font-size:0.75rem;font-weight:400;color:#718096;">(optional — wholesale orders)</span></h3>
-      <div class="alert alert-info">
-        In Zoho Invoices: <strong>Invoices → ⋯ Export → Export as CSV</strong> (include line items)
-      </div>
-      <div class="upload-zone" id="zoho-zone" onclick="document.getElementById('zoho-file').click()">
-        <div class="icon">📄</div>
-        <p><strong>Click to upload</strong> Zoho invoices CSV</p>
-        <p style="margin-top:4px;font-size:0.75rem;" id="zoho-zone-loc">Will be imported for: 🇬🇧 UK</p>
-      </div>
-      <input type="file" id="zoho-file" accept=".csv" style="display:none" />
-      <div id="zoho-status" style="margin-top:10px;"></div>
-    </div>
-
-    <!-- Inventory -->
-    <div class="section">
-      <h3>3 · Current Inventory Levels</h3>
-      <div class="alert alert-info">
-        In Shopify: <strong>Products → Inventory → Export</strong>. Or enter stock levels manually below.
-      </div>
-      <div class="upload-zone" id="inv-zone" onclick="document.getElementById('inv-file').click()">
-        <div class="icon">🗄️</div>
-        <p><strong>Click to upload</strong> Shopify inventory CSV, or use manual entry below</p>
-        <p style="margin-top:4px;font-size:0.75rem;" id="inv-zone-loc">Will be imported for: 🇬🇧 UK</p>
-      </div>
-      <input type="file" id="inv-file" accept=".csv" style="display:none" />
-      <div id="inv-status" style="margin-top:10px;"></div>
-      <div id="manual-inv-wrap" style="margin-top:20px;display:none;">
-        <h4 style="font-size:0.85rem;font-weight:600;margin-bottom:12px;color:#4a5568;">Manual Stock Entry — <span id="manual-inv-loc-label">🇬🇧 UK</span></h4>
-        <table class="inv-table" style="width:100%;border-collapse:collapse;">
-          <thead><tr>
-            <th style="text-align:left;padding:7px;font-size:0.72rem;text-transform:uppercase;color:#718096;border-bottom:1px solid #e2e8f0;">SKU</th>
-            <th style="text-align:left;padding:7px;font-size:0.72rem;text-transform:uppercase;color:#718096;border-bottom:1px solid #e2e8f0;">Product</th>
-            <th style="text-align:right;padding:7px;font-size:0.72rem;text-transform:uppercase;color:#718096;border-bottom:1px solid #e2e8f0;">Current Stock</th>
-          </tr></thead>
-          <tbody id="manual-inv-tbody"></tbody>
-        </table>
-        <button class="btn btn-primary" style="margin-top:12px;" onclick="saveManualInventory()">Save Stock Levels</button>
-      </div>
-    </div>
-
-    <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;">
-      <button class="btn btn-primary" onclick="goToDashboard()">View Dashboard →</button>
-      <button class="btn btn-danger btn-sm" onclick="clearAllData()">🗑 Clear All Data</button>
-    </div>
-  </div>
-
-  <!-- ═══════════════════════════════════ SETTINGS -->
-  <div id="tab-settings" class="tab-panel">
-
-    <div class="section">
-      <h3>Lead Times &amp; Stock Targets</h3>
-      <div class="form-grid">
-        <div class="form-group">
-          <label>Normal Lead Time (days)</label>
-          <input type="number" id="s-normal-lead" value="14" min="1" />
-          <small>Standard delivery time from supplier</small>
-        </div>
-        <div class="form-group">
-          <label>Maximum Lead Time (days)</label>
-          <input type="number" id="s-max-lead" value="30" min="1" />
-          <small>Worst-case time — used for safety stock</small>
-        </div>
-        <div class="form-group">
-          <label>Safety Buffer (days)</label>
-          <input type="number" id="s-safety" value="14" min="0" />
-          <small>Extra days on top of lead time before reordering</small>
-        </div>
-        <div class="form-group">
-          <label>Target Stock Days</label>
-          <input type="number" id="s-target" value="90" min="1" />
-          <small>How many days of stock to order up to</small>
-        </div>
-        <div class="form-group">
-          <label>Demand Smoothing</label>
-          <select id="s-smoothing">
-            <option value="12m">Full 12 months (equal weight)</option>
-            <option value="6m">Last 6 months (recent bias)</option>
-            <option value="3m">Last 3 months (very recent)</option>
-            <option value="weighted" selected>Weighted (recent 3mo = 2×)</option>
-          </select>
-          <small>How to calculate average daily demand</small>
-        </div>
-        <div class="form-group">
-          <label>Minimum Order Quantity</label>
-          <input type="number" id="s-moq" value="0" min="0" />
-          <small>Round order qty up to a multiple of this (0 = off)</small>
-        </div>
-      </div>
-    </div>
-
-    <div class="section">
-      <h3>🎆 Chinese New Year Blackout</h3>
-      <div class="toggle-row">
-        <input type="checkbox" id="s-cny-enabled" checked />
-        <label for="s-cny-enabled">Enable CNY planning — no deliveries during this period</label>
-      </div>
-      <div class="form-grid">
-        <div class="form-group">
-          <label>CNY Start (MM-DD)</label>
-          <input type="text" id="s-cny-start" value="01-25" placeholder="MM-DD" />
-          <small>Varies each year — update annually</small>
-        </div>
-        <div class="form-group">
-          <label>CNY End (MM-DD)</label>
-          <input type="text" id="s-cny-end" value="02-28" placeholder="MM-DD" />
-        </div>
-        <div class="form-group">
-          <label>Pre-CNY Order Buffer (days)</label>
-          <input type="number" id="s-cny-buffer" value="21" min="0" />
-          <small>Place order this many days before CNY starts</small>
-        </div>
-      </div>
-    </div>
-
-    <div class="section">
-      <h3>🛍️ Black Friday / Peak Season</h3>
-      <div class="toggle-row">
-        <input type="checkbox" id="s-bf-enabled" checked />
-        <label for="s-bf-enabled">Enable Black Friday demand uplift and delivery delays</label>
-      </div>
-      <div class="form-grid">
-        <div class="form-group">
-          <label>Peak Season Start (MM-DD)</label>
-          <input type="text" id="s-bf-start" value="11-01" />
-        </div>
-        <div class="form-group">
-          <label>Peak Season End (MM-DD)</label>
-          <input type="text" id="s-bf-end" value="12-20" />
-        </div>
-        <div class="form-group">
-          <label>Demand Multiplier</label>
-          <input type="number" id="s-bf-mult" value="1.5" step="0.1" min="1" />
-          <small>1.5 = expect 50% more sales than normal</small>
-        </div>
-        <div class="form-group">
-          <label>Extra Delivery Days</label>
-          <input type="number" id="s-bf-delay" value="14" min="0" />
-          <small>Extra lead time due to shipping congestion</small>
-        </div>
-      </div>
-    </div>
-
-    <div class="section">
-      <h3>🏷️ Stock Update Labels</h3>
-      <p style="font-size:0.85rem;color:#718096;margin-bottom:16px;">Maps the shorthand labels in your stock updates to SKUs. Case-insensitive.</p>
-      <div id="alias-table-wrap"></div>
-      <div style="margin-top:16px;padding-top:16px;border-top:1px solid #e2e8f0;">
-        <h4 style="font-size:0.85rem;font-weight:600;color:#4a5568;margin-bottom:12px;">Add New Label</h4>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
-          <div class="form-group" style="min-width:160px;">
-            <label>Label (as received)</label>
-            <input type="text" id="new-alias-label" placeholder="e.g. XL Balm" />
-          </div>
-          <div class="form-group" style="min-width:200px;">
-            <label>Base SKU</label>
-            <input type="text" id="new-alias-sku" placeholder="e.g. EHBALM-002" />
-          </div>
-          <button class="btn btn-secondary" style="align-self:flex-end;" onclick="addAlias()">+ Add Label</button>
-        </div>
-        <div id="alias-add-error" style="margin-top:8px;font-size:0.8rem;color:#c53030;display:none;"></div>
-      </div>
-    </div>
-
-    <div class="section">
-      <h3>🎁 Bundle &amp; Multi-Pack Mappings</h3>
-      <p style="font-size:0.85rem;color:#718096;margin-bottom:16px;">Bundle sales are credited to their component base SKUs. Bundle SKUs are excluded from the inventory table.</p>
-      <div id="bundle-table-wrap"></div>
-      <div style="margin-top:16px;padding-top:16px;border-top:1px solid #e2e8f0;">
-        <h4 style="font-size:0.85rem;font-weight:600;color:#4a5568;margin-bottom:12px;">Add New Bundle</h4>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
-          <div class="form-group" style="min-width:180px;">
-            <label>Bundle SKU</label>
-            <input type="text" id="new-bundle-sku" placeholder="e.g. MYBUNDLE001" />
-          </div>
-          <div class="form-group" style="flex:1;min-width:280px;">
-            <label>Components — one per line as: <code style="font-size:0.75rem;">BASE-SKU × qty</code></label>
-            <textarea id="new-bundle-components" rows="3" placeholder="TatNumCre/Sin-1* × 5&#10;MNSPRAY-001 × 1"
-              style="border:1px solid #e2e8f0;border-radius:6px;padding:8px 10px;font-size:0.85rem;width:100%;font-family:monospace;resize:vertical;"></textarea>
-          </div>
-          <button class="btn btn-secondary" style="align-self:flex-end;" onclick="addBundle()">+ Add Bundle</button>
-        </div>
-        <div id="bundle-add-error" style="margin-top:8px;font-size:0.8rem;color:#c53030;display:none;"></div>
-      </div>
-    </div>
-
-    <button class="btn btn-primary" onclick="saveSettings()">💾 Save Settings</button>
-    <span id="settings-saved-msg" style="margin-left:12px;font-size:0.85rem;color:#047857;display:none;">✓ Saved</span>
-  </div>
-
-  <!-- ═══════════════════════════════════ ORDER REPORT -->
-  <div id="tab-report" class="tab-panel">
-    <div class="section">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:10px;">
-        <div>
-          <h3 style="padding-bottom:0;border-bottom:none;margin-bottom:4px;">Suggested Purchase Orders</h3>
-          <p style="font-size:0.8rem;color:#718096;">Only SKUs that need ordering are shown, grouped by location.</p>
-        </div>
-        <div style="display:flex;gap:8px;">
-          <button class="btn btn-green btn-sm" onclick="exportCSV()">⬇ Export CSV</button>
-          <button class="btn btn-secondary btn-sm" onclick="copyToClipboard()">📋 Copy</button>
-        </div>
-      </div>
-      <div id="report-wrap" style="margin-top:16px;"></div>
-    </div>
-  </div>
-
-</div><!-- /content -->
+</div>
 
 <script>
-// ══════════════════════════════════════════════════════════════════════
-// CONSTANTS & STATE
-// ══════════════════════════════════════════════════════════════════════
-const LOCS = ['USA', 'UK', 'AUS'];
-const LOC_META = {
-  USA: { label: 'USA',       flag: '🇺🇸', color: '#3b82f6', cls: 'loc-usa' },
-  UK:  { label: 'UK',        flag: '🇬🇧', color: '#dc2626', cls: 'loc-uk'  },
-  AUS: { label: 'Australia', flag: '🇦🇺', color: '#16a34a', cls: 'loc-aus' },
-};
+let currentTab = 'ALL';
+let inventoryData = null;
 
-const state = {
-  shopifyRows: { USA: [], UK: [], AUS: [] },
-  zohoRows:    { USA: [], UK: [], AUS: [] },
-  inventory:   { USA: {}, UK: {}, AUS: {} },
-  lastUpdated: null,
-  autoLoaded:  false,
-};
-
-let currentLocation = 'ALL';  // dashboard view
-let importLocation  = 'UK';   // active import tab
-
-// ── Data accessors (handles ALL aggregation) ──────────────────────────
-function getShopifyRows(loc) {
-  if (loc === 'ALL') return LOCS.flatMap(l => state.shopifyRows[l]);
-  return state.shopifyRows[loc] || [];
+function showTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => { if(t.textContent.includes(tab) || (tab==='ALL' && t.textContent.includes('All'))) t.classList.add('active'); });
+  if (inventoryData) renderDashboard();
 }
-function getZohoRows(loc) {
-  if (loc === 'ALL') return LOCS.flatMap(l => state.zohoRows[l]);
-  return state.zohoRows[loc] || [];
-}
-function getInventory(loc) {
-  if (loc === 'ALL') {
-    const combined = {};
-    LOCS.forEach(l => {
-      Object.entries(state.inventory[l] || {}).forEach(([sku, d]) => {
-        if (combined[sku]) combined[sku].stock += d.stock;
-        else combined[sku] = { name: d.name, stock: d.stock };
-      });
-    });
-    return combined;
+
+async function loadData() {
+  try {
+    const resp = await fetch('/api/dashboard');
+    if (!resp.ok) throw new Error('Failed');
+    inventoryData = await resp.json();
+    document.getElementById('status-badge').textContent = '● Live';
+    renderDashboard();
+  } catch(e) {
+    document.getElementById('dashboard').innerHTML = '<div class="loading"><h2>⚠️ Error loading data</h2><p>Please refresh the page</p></div>';
   }
-  return state.inventory[loc] || {};
-}
-function hasAnyData() {
-  return LOCS.some(l =>
-    state.shopifyRows[l].length > 0 ||
-    state.zohoRows[l].length > 0 ||
-    Object.keys(state.inventory[l]).length > 0
-  );
-}
-function hasLocData(loc) {
-  return state.shopifyRows[loc].length > 0 ||
-         state.zohoRows[loc].length > 0 ||
-         Object.keys(state.inventory[loc]).length > 0;
-}
-
-// ══════════════════════════════════════════════════════════════════════
-// DEFAULT SETTINGS
-// ══════════════════════════════════════════════════════════════════════
-const defaultSettings = {
-  normalLeadTime: 14, maxLeadTime: 30, safetyBuffer: 14, targetStockDays: 90,
-  smoothing: 'weighted', moq: 0,
-  cny: { enabled: true, start: '01-25', end: '02-28', buffer: 21 },
-  bf:  { enabled: true, start: '11-01', end: '12-20', mult: 1.5, delay: 14 },
-  stockAliases: {
-    '10g':        'TatNumCre/Sin-1*',
-    '30g':        'TatNumCreXL/Sin-1',
-    'spray':      'MNSPRAY-001',
-    'xl spray':   'MNSPRAYXL-001',
-    'balm':       'EHBALM-001',
-    'foam':       'KICFOAM-001',
-    'soap':       'TNC/SOAP',
-    'scrub':      'TNC/SCRUB',
-    'glow':       'TNC/GLOW',
-    'oil':        'TNC/OIL',
-    'spf':        'TNC/ARMOUR',
-    'fda cream':  'FDATatNumCre/Sin-1*',
-    'poster':     'WSPOSTERA3',
-    'travel bag': 'GWP-BFCM',
-    'lb-l':       'LB005MS-L',
-    'lb-xl':      'LB005MS-XL',
-    'lb-xxl':     'LB005MS-XXL',
-  },
-  bundles: {
-    'UTBUNDLE001':         [{ sku: 'MNSPRAY-001', qty: 1 }, { sku: 'KICFOAM-001', qty: 1 }, { sku: 'EHBALM-001', qty: 1 }],
-    'SigDuo001':           [{ sku: 'TatNumCreXL/Sin-1', qty: 1 }, { sku: 'MNSPRAY-001', qty: 1 }],
-    'TatNumCre/Sin-3*':    [{ sku: 'TatNumCre/Sin-1*', qty: 3 }],
-    'TatNumCreXL/Sin-5':   [{ sku: 'TatNumCreXL/Sin-1', qty: 5 }],
-    'TatNumCre/Sin-8*':    [{ sku: 'TatNumCre/Sin-1*', qty: 8 }],
-    'TatNumCreXL/Sin-3':   [{ sku: 'TatNumCreXL/Sin-1', qty: 3 }],
-    'TatNumCre/Sin-5*':    [{ sku: 'TatNumCre/Sin-1*', qty: 5 }],
-    'WHOLESALE25':         [{ sku: 'TatNumCre/Sin-1*', qty: 25 }],
-    'TatNumCreXL/Sin-8':   [{ sku: 'TatNumCreXL/Sin-1', qty: 8 }],
-    'FDATatNumCre/Sin-8*': [{ sku: 'FDATatNumCre/Sin-1*', qty: 8 }],
-    'FDATatNumCre/Sin-3*': [{ sku: 'FDATatNumCre/Sin-1*', qty: 3 }],
-    'WHOLESALE100':        [{ sku: 'TatNumCre/Sin-1*', qty: 100 }],
-    'WHOLESALE50':         [{ sku: 'TatNumCre/Sin-1*', qty: 50 }],
-    'SKNBUNDLE001':        [{ sku: 'TNC/GLOW', qty: 1 }, { sku: 'TNC/OIL', qty: 1 }, { sku: 'TNC/ARMOUR', qty: 1 }, { sku: 'TNC/SCRUB', qty: 1 }],
-  }
-};
-
-let settings = JSON.parse(localStorage.getItem('inv_settings') || 'null') || JSON.parse(JSON.stringify(defaultSettings));
-
-
-// ══════════════════════════════════════════════════════════════════════
-// SETTINGS
-// ══════════════════════════════════════════════════════════════════════
-function loadSettingsToUI() {
-  document.getElementById('s-normal-lead').value = settings.normalLeadTime;
-  document.getElementById('s-max-lead').value    = settings.maxLeadTime;
-  document.getElementById('s-safety').value      = settings.safetyBuffer;
-  document.getElementById('s-target').value      = settings.targetStockDays;
-  document.getElementById('s-smoothing').value   = settings.smoothing;
-  document.getElementById('s-moq').value         = settings.moq;
-  document.getElementById('s-cny-enabled').checked = settings.cny.enabled;
-  document.getElementById('s-cny-start').value   = settings.cny.start;
-  document.getElementById('s-cny-end').value     = settings.cny.end;
-  document.getElementById('s-cny-buffer').value  = settings.cny.buffer;
-  document.getElementById('s-bf-enabled').checked = settings.bf.enabled;
-  document.getElementById('s-bf-start').value    = settings.bf.start;
-  document.getElementById('s-bf-end').value      = settings.bf.end;
-  document.getElementById('s-bf-mult').value     = settings.bf.mult;
-  document.getElementById('s-bf-delay').value    = settings.bf.delay;
-}
-
-function saveSettings() {
-  settings = {
-    normalLeadTime: +document.getElementById('s-normal-lead').value,
-    maxLeadTime:    +document.getElementById('s-max-lead').value,
-    safetyBuffer:   +document.getElementById('s-safety').value,
-    targetStockDays:+document.getElementById('s-target').value,
-    smoothing:       document.getElementById('s-smoothing').value,
-    moq:            +document.getElementById('s-moq').value,
-    cny: {
-      enabled: document.getElementById('s-cny-enabled').checked,
-      start:   document.getElementById('s-cny-start').value,
-      end:     document.getElementById('s-cny-end').value,
-      buffer: +document.getElementById('s-cny-buffer').value,
-    },
-    bf: {
-      enabled: document.getElementById('s-bf-enabled').checked,
-      start:   document.getElementById('s-bf-start').value,
-      end:     document.getElementById('s-bf-end').value,
-      mult:   +document.getElementById('s-bf-mult').value,
-      delay:  +document.getElementById('s-bf-delay').value,
-    },
-    bundles:      settings.bundles,
-    stockAliases: settings.stockAliases,
-  };
-  localStorage.setItem('inv_settings', JSON.stringify(settings));
-  renderAliasTable();
-  renderBundleTable();
-  const msg = document.getElementById('settings-saved-msg');
-  msg.style.display = 'inline';
-  setTimeout(() => msg.style.display = 'none', 2500);
-  renderDashboard();
-}
-
-
-// ══════════════════════════════════════════════════════════════════════
-// DATE HELPERS
-// ══════════════════════════════════════════════════════════════════════
-function parseDate(str) {
-  if (!str) return null;
-  str = str.trim();
-  if (/^\d{2}\/\d{2}\/\d{4}/.test(str)) {
-    const [d, m, y] = str.split(/[\/\s]/);
-    return new Date(+y, +m-1, +d);
-  }
-  return new Date(str);
-}
-function monthDay(str) {
-  const [m, d] = str.split('-').map(Number);
-  return { month: m - 1, day: d };
-}
-function getSeasonalDates(setting, year) {
-  const s = monthDay(setting.start), e = monthDay(setting.end);
-  let start = new Date(year, s.month, s.day);
-  let end   = new Date(year, e.month, e.day);
-  if (end <= start) end.setFullYear(year + 1);
-  return { start, end };
-}
-function isInPeriod(date, setting) {
-  const yr = date.getFullYear();
-  for (const y of [yr-1, yr, yr+1]) {
-    const { start, end } = getSeasonalDates(setting, y);
-    if (date >= start && date <= end) return true;
-  }
-  return false;
-}
-function daysUntilPeriodStart(setting) {
-  const today = new Date(), yr = today.getFullYear();
-  for (const y of [yr, yr+1]) {
-    const { start, end } = getSeasonalDates(setting, y);
-    if (today > end) continue;
-    return Math.max(0, Math.ceil((start - today) / 86400000));
-  }
-  return 9999;
-}
-function daysUntilPeriodEnd(setting) {
-  const today = new Date(), yr = today.getFullYear();
-  for (const y of [yr-1, yr, yr+1]) {
-    const { start, end } = getSeasonalDates(setting, y);
-    if (today >= start && today <= end) return Math.ceil((end - today) / 86400000);
-  }
-  return 0;
-}
-
-
-// ══════════════════════════════════════════════════════════════════════
-// CSV PARSERS
-// ══════════════════════════════════════════════════════════════════════
-function findCol(headers, candidates) {
-  const lower = headers.map(h => h.toLowerCase().trim());
-  for (const c of candidates) {
-    const idx = lower.indexOf(c.toLowerCase());
-    if (idx !== -1) return headers[idx];
-  }
-  for (const c of candidates) {
-    const found = headers.find(h => h.toLowerCase().includes(c.toLowerCase()));
-    if (found) return found;
-  }
-  return null;
-}
-
-function parseShopifyCSV(text) {
-  const { data } = Papa.parse(text, { header: true, skipEmptyLines: true });
-  const rows = [];
-  if (!data.length) return rows;
-  const headers = Object.keys(data[0]);
-  const dateCol = findCol(headers, ['Created at','created_at','Date','Order Date']);
-  const qtyCol  = findCol(headers, ['Lineitem quantity','line_item_quantity','Quantity','qty']);
-  const skuCol  = findCol(headers, ['Lineitem sku','line_item_sku','SKU','sku','Variant SKU']);
-  const nameCol = findCol(headers, ['Lineitem name','line_item_name','Product','Product Name','Title']);
-  if (!dateCol || !qtyCol) return rows;
-  const cutoff = new Date(); cutoff.setFullYear(cutoff.getFullYear() - 1);
-  for (const row of data) {
-    const d = parseDate(row[dateCol]);
-    if (!d || isNaN(d) || d < cutoff) continue;
-    const qty = parseFloat(row[qtyCol]);
-    const sku = (row[skuCol] || '').trim();
-    const name= (row[nameCol] || sku).trim();
-    if (!sku || isNaN(qty) || qty <= 0) continue;
-    rows.push({ date: d, sku, name, qty });
-  }
-  return rows;
-}
-
-function parseZohoCSV(text) {
-  const { data } = Papa.parse(text, { header: true, skipEmptyLines: true });
-  const rows = [];
-  if (!data.length) return rows;
-  const headers = Object.keys(data[0]);
-  const dateCol = findCol(headers, ['Invoice Date','Date','Invoice date','Created Date']);
-  const qtyCol  = findCol(headers, ['Quantity','Qty','Units','Item Quantity','Line Item Quantity']);
-  const skuCol  = findCol(headers, ['SKU','Item Code','Product Code','Item SKU']);
-  const nameCol = findCol(headers, ['Item Name','Product Name','Description','Item Description']);
-  if (!dateCol || !qtyCol) return rows;
-  const cutoff = new Date(); cutoff.setFullYear(cutoff.getFullYear() - 1);
-  for (const row of data) {
-    const d = parseDate(row[dateCol]);
-    if (!d || isNaN(d) || d < cutoff) continue;
-    const qty = parseFloat(row[qtyCol]);
-    const sku = (row[skuCol] || '').trim();
-    const name= (row[nameCol] || sku).trim();
-    if (!sku || isNaN(qty) || qty <= 0) continue;
-    rows.push({ date: d, sku, name, qty });
-  }
-  return rows;
-}
-
-function parseInventoryCSV(text) {
-  const { data } = Papa.parse(text, { header: true, skipEmptyLines: true });
-  const inv = {};
-  if (!data.length) return inv;
-  const headers = Object.keys(data[0]);
-  const skuCol  = findCol(headers, ['SKU','Variant SKU','sku','Item Code']);
-  const stockCol= findCol(headers, ['Available','Stock','Current Stock','Qty On Hand','On Hand','Inventory']);
-  const nameCol = findCol(headers, ['Title','Product','Product Name','Item Name','Name']);
-  for (const row of data) {
-    const sku = (row[skuCol] || '').trim();
-    if (!sku) continue;
-    const stock = parseFloat(row[stockCol]) || 0;
-    const name  = (row[nameCol] || sku).trim();
-    inv[sku] = { name, stock };
-  }
-  return inv;
-}
-
-
-// ══════════════════════════════════════════════════════════════════════
-// CALCULATION ENGINE
-// ══════════════════════════════════════════════════════════════════════
-function getSKUs(loc) {
-  const bundleSkus = new Set(Object.keys(settings.bundles || {}));
-  const skus = new Set();
-  const shopify = getShopifyRows(loc), zoho = getZohoRows(loc);
-  const inv = getInventory(loc);
-  [...shopify, ...zoho].forEach(r => { if (!bundleSkus.has(r.sku)) skus.add(r.sku); });
-  Object.keys(inv).forEach(s => { if (!bundleSkus.has(s)) skus.add(s); });
-  return [...skus].filter(Boolean);
-}
-
-function calcDailyRate(sku, loc) {
-  const today = new Date();
-  const c12 = new Date(); c12.setFullYear(today.getFullYear() - 1);
-  const c6  = new Date(); c6.setMonth(today.getMonth() - 6);
-  const c3  = new Date(); c3.setMonth(today.getMonth() - 3);
-  const allData = [...getShopifyRows(loc), ...getZohoRows(loc)];
-
-  function effectiveRows(cutoff) {
-    const rows = [];
-    allData.filter(r => r.sku === sku && r.date >= cutoff)
-           .forEach(r => rows.push({ date: r.date, qty: r.qty }));
-    for (const [bSku, components] of Object.entries(settings.bundles || {})) {
-      const comp = components.find(c => c.sku === sku);
-      if (!comp) continue;
-      allData.filter(r => r.sku === bSku && r.date >= cutoff)
-             .forEach(r => rows.push({ date: r.date, qty: r.qty * comp.qty }));
-    }
-    return rows;
-  }
-
-  const sm = settings.smoothing;
-  if (sm === '12m') { const r = effectiveRows(c12); if (!r.length) return 0; return r.reduce((s,x)=>s+x.qty,0)/Math.max(1,(today-c12)/86400000); }
-  if (sm === '6m')  { const r = effectiveRows(c6);  if (!r.length) return 0; return r.reduce((s,x)=>s+x.qty,0)/Math.max(1,(today-c6)/86400000); }
-  if (sm === '3m')  { const r = effectiveRows(c3);  if (!r.length) return 0; return r.reduce((s,x)=>s+x.qty,0)/Math.max(1,(today-c3)/86400000); }
-  const old = effectiveRows(c12).filter(r => r.date < c3);
-  const rec = effectiveRows(c3);
-  if (!old.length && !rec.length) return 0;
-  const rOld = old.reduce((s,x)=>s+x.qty,0) / Math.max(1,(c3-c12)/86400000);
-  const rRec = rec.reduce((s,x)=>s+x.qty,0) / Math.max(1,(today-c3)/86400000);
-  return (rOld + rRec * 2) / 3;
-}
-
-function getBundleContributions(sku) {
-  const contribs = [];
-  for (const [bSku, components] of Object.entries(settings.bundles || {})) {
-    const comp = components.find(c => c.sku === sku);
-    if (comp) contribs.push(`${bSku}${comp.qty > 1 ? ' ×'+comp.qty : ''}`);
-  }
-  return contribs;
-}
-
-function calcMetrics(sku, loc) {
-  const today = new Date();
-  const inv   = getInventory(loc);
-  const invEntry = inv[sku] || { name: sku, stock: 0 };
-  const currentStock = invEntry.stock;
-  const allData = [...getShopifyRows(loc), ...getZohoRows(loc)];
-  const allNames = allData.filter(r=>r.sku===sku).map(r=>r.name).filter(Boolean);
-  const name = (invEntry.name && invEntry.name !== sku) ? invEntry.name : (allNames[0] || sku);
-  const baseDailyRate = calcDailyRate(sku, loc);
-
-  if (baseDailyRate === 0) {
-    return { sku, name, currentStock, avgDailyRate:0, effectiveRate:0, daysRemaining: currentStock>0?9999:0, status:'nodata', suggestedQty:0, notes:[], reorderBy:null };
-  }
-
-  const inBF = settings.bf.enabled && isInPeriod(today, settings.bf);
-  const effectiveRate     = inBF ? baseDailyRate * settings.bf.mult : baseDailyRate;
-  const effectiveLeadTime = settings.maxLeadTime + (inBF ? settings.bf.delay : 0);
-  const daysRemaining     = currentStock / effectiveRate;
-  const reorderDays       = effectiveLeadTime + settings.safetyBuffer;
-
-  let cnyExtraStock = 0, cnyNote = null;
-  if (settings.cny.enabled) {
-    if (isInPeriod(today, settings.cny)) {
-      const daysLeft = daysUntilPeriodEnd(settings.cny);
-      cnyExtraStock = Math.max(0, (daysLeft + settings.maxLeadTime + settings.safetyBuffer) * effectiveRate - currentStock);
-      cnyNote = `⚠️ In CNY blackout — ~${daysLeft} days remaining`;
-    } else {
-      const dUntil = daysUntilPeriodStart(settings.cny);
-      if (dUntil < settings.targetStockDays + settings.maxLeadTime + settings.cny.buffer) {
-        let cnyEnd;
-        for (const y of [today.getFullYear(), today.getFullYear()+1]) {
-          const { start, end } = getSeasonalDates(settings.cny, y);
-          if (today < start) { cnyEnd = end; break; }
-        }
-        if (cnyEnd) {
-          const mustOrderBy = new Date(); mustOrderBy.setDate(mustOrderBy.getDate() + dUntil - settings.cny.buffer - settings.maxLeadTime);
-          const cnyDuration = Math.ceil((cnyEnd - new Date(today.getFullYear()+(dUntil>300?1:0), monthDay(settings.cny.start).month, monthDay(settings.cny.start).day)) / 86400000);
-          cnyExtraStock = Math.max(0, cnyDuration * effectiveRate);
-          if (dUntil <= 90) cnyNote = `🎆 CNY in ${dUntil}d — order by ${mustOrderBy.toLocaleDateString('en-GB',{day:'numeric',month:'short'})}`;
-        }
-      }
-    }
-  }
-
-  const targetStock = settings.targetStockDays * effectiveRate;
-  let suggestedQty = Math.ceil(Math.max(0, targetStock - currentStock + cnyExtraStock));
-  if (settings.moq > 0 && suggestedQty > 0) suggestedQty = Math.ceil(suggestedQty / settings.moq) * settings.moq;
-
-  let status;
-  if      (daysRemaining <= reorderDays)               status = 'critical';
-  else if (daysRemaining <= settings.targetStockDays)  status = 'warning';
-  else                                                  status = 'ok';
-  if (cnyExtraStock > 0 && currentStock < cnyExtraStock + effectiveRate * settings.safetyBuffer && status === 'ok') status = 'warning';
-
-  const reorderBy = new Date(today.getTime() + (daysRemaining - reorderDays) * 86400000);
-  const notes = [];
-  if (inBF)    notes.push(`🛍️ Peak season (+${Math.round((settings.bf.mult-1)*100)}%)`);
-  if (cnyNote) notes.push(cnyNote);
-
-  return { sku, name, currentStock, avgDailyRate: baseDailyRate, effectiveRate, daysRemaining: Math.floor(daysRemaining), status, suggestedQty, reorderBy: isNaN(reorderBy)?null:reorderBy, notes };
-}
-
-
-// ══════════════════════════════════════════════════════════════════════
-// RENDER — DASHBOARD
-// ══════════════════════════════════════════════════════════════════════
-function setDashboardLoc(loc) {
-  currentLocation = loc;
-  document.querySelectorAll('.loc-btn').forEach(b => b.classList.toggle('active', b.dataset.loc === loc));
-  renderDashboard();
 }
 
 function renderDashboard() {
-  // Seasonal alerts
-  const alertDiv = document.getElementById('seasonal-alerts');
-  alertDiv.innerHTML = '';
-  if (settings.cny.enabled && isInPeriod(new Date(), settings.cny)) {
-    alertDiv.innerHTML += `<div class="seasonal-bar cny">🎆 <strong>Chinese New Year in progress</strong> — no deliveries for ~${daysUntilPeriodEnd(settings.cny)} more days.</div>`;
-  } else if (settings.cny.enabled && daysUntilPeriodStart(settings.cny) <= 60) {
-    alertDiv.innerHTML += `<div class="seasonal-bar cny">🎆 <strong>Chinese New Year in ${daysUntilPeriodStart(settings.cny)} days</strong> — place your pre-CNY order in time!</div>`;
-  }
-  if (settings.bf.enabled && isInPeriod(new Date(), settings.bf)) {
-    alertDiv.innerHTML += `<div class="seasonal-bar">🛍️ <strong>Peak season active</strong> — higher demand and slower deliveries expected.</div>`;
-  }
-
-  if (state.lastUpdated) document.getElementById('last-updated-label').textContent = `Refreshed ${state.lastUpdated}`;
-
-  const container = document.getElementById('dashboard-content');
-  if (!hasAnyData()) {
-    container.innerHTML = `<div class="table-wrap"><div class="empty"><div class="icon">📦</div><h3>No data yet</h3><p>Head to <strong>Import Data</strong> to upload your data, or run <code>fetch_data.py</code> to pull live data.</p></div></div>`;
+  const data = currentTab === 'ALL' 
+    ? mergeAllLocs() 
+    : (inventoryData[currentTab.toLowerCase()] || { skus: [], orders: 0 });
+  
+  const skus = data.skus || [];
+  if (!skus.length) {
+    document.getElementById('dashboard').innerHTML = '<div class="loading"><h2>No data for this location yet</h2></div>';
     return;
   }
 
-  if (currentLocation === 'ALL') {
-    renderAllView(container);
-  } else {
-    renderSingleLocView(container, currentLocation);
-  }
-  renderReport();
-}
+  const critical = skus.filter(s => s.status === 'critical');
+  const warning = skus.filter(s => s.status === 'warning');
+  const ok = skus.filter(s => s.status === 'ok');
 
-function renderAllView(container) {
-  // Top: per-location summary cards
-  const summaryCards = LOCS.map(loc => {
-    const meta    = LOC_META[loc];
-    const skus    = getSKUs(loc);
-    const metrics = skus.map(s => calcMetrics(s, loc));
-    const nCrit   = metrics.filter(m => m.status === 'critical').length;
-    const nWarn   = metrics.filter(m => m.status === 'warning').length;
-    const nOk     = metrics.filter(m => m.status === 'ok' || m.status === 'nodata').length;
-    const hasData = hasLocData(loc);
-    return `<div class="loc-summary-card ${meta.cls}" onclick="setDashboardLoc('${loc}')" title="Click to view ${meta.label} detail">
-      <h4>${meta.flag} ${meta.label}</h4>
-      ${hasData ? `<div class="loc-mini-stats">
-        <div class="loc-mini-stat"><span class="dot dot-red"></span>${nCrit} critical</div>
-        <div class="loc-mini-stat"><span class="dot dot-amber"></span>${nWarn} order soon</div>
-        <div class="loc-mini-stat"><span class="dot dot-green"></span>${nOk} ok</div>
-      </div>
-      <div style="font-size:0.75rem;color:#a0aec0;margin-top:8px;">Click for full detail →</div>` :
-      `<div style="font-size:0.84rem;color:#a0aec0;">No data imported yet</div>`}
-    </div>`;
-  }).join('');
-
-  // Per-location sections
-  const sections = LOCS.map(loc => buildLocSection(loc, true)).join('');
-  container.innerHTML = `<div class="loc-summary-row">${summaryCards}</div>${sections}`;
-}
-
-function renderSingleLocView(container, loc) {
-  const meta    = LOC_META[loc];
-  const skus    = getSKUs(loc);
-  if (!skus.length && !hasLocData(loc)) {
-    container.innerHTML = `<div class="table-wrap"><div class="empty"><div class="icon">📦</div><h3>No data for ${meta.flag} ${meta.label}</h3><p>Go to <strong>Import Data</strong>, select <strong>${meta.label}</strong>, and upload your orders and inventory.</p></div></div>`;
-    return;
-  }
-  const metrics = skus.map(s => calcMetrics(s, loc)).sort((a,b) => b.avgDailyRate - a.avgDailyRate);
-  const nCrit   = metrics.filter(m=>m.status==='critical').length;
-  const nWarn   = metrics.filter(m=>m.status==='warning').length;
-  const nOk     = metrics.filter(m=>m.status==='ok'||m.status==='nodata').length;
-
-  container.innerHTML = `
+  let html = `
     <div class="cards">
-      <div class="card red">  <div class="label">Order Now</div>  <div class="value">${nCrit}</div></div>
-      <div class="card amber"><div class="label">Order Soon</div> <div class="value">${nWarn}</div></div>
-      <div class="card green"><div class="label">Well Stocked</div><div class="value">${nOk}</div></div>
-      <div class="card blue"> <div class="label">Total SKUs</div> <div class="value">${skus.length}</div></div>
+      <div class="card red"><div class="label">Order Now</div><div class="value">${critical.length}</div></div>
+      <div class="card amber"><div class="label">Order Soon</div><div class="value">${warning.length}</div></div>
+      <div class="card green"><div class="label">Well Stocked</div><div class="value">${ok.length}</div></div>
+      <div class="card blue"><div class="label">Total SKUs</div><div class="value">${skus.length}</div></div>
     </div>
     <div class="table-wrap">
-      <div class="table-header"><h2>${meta.flag} ${meta.label} — Inventory Status</h2></div>
-      <div style="overflow-x:auto;">${buildSkuTable(metrics)}</div>
-    </div>`;
-}
-
-function buildLocSection(loc, collapsible) {
-  const meta    = LOC_META[loc];
-  const skus    = getSKUs(loc);
-  const hasData = hasLocData(loc);
-  const metrics = skus.map(s => calcMetrics(s, loc)).sort((a,b) => b.avgDailyRate - a.avgDailyRate);
-  const nCrit   = metrics.filter(m=>m.status==='critical').length;
-  const nWarn   = metrics.filter(m=>m.status==='warning').length;
-
-  const summaryText = hasData
-    ? `${skus.length} SKUs · ${nCrit > 0 ? `<span style="color:#fca5a5;font-weight:700;">${nCrit} order now</span> · ` : ''}${nWarn > 0 ? `${nWarn} order soon · ` : ''}Click to expand`
-    : 'No data imported yet';
-
-  const bodyContent = !hasData
-    ? `<div class="empty" style="padding:32px;"><div class="icon">📦</div><p>No data for ${meta.label} yet — go to Import Data to add it.</p></div>`
-    : `<div style="overflow-x:auto;">${buildSkuTable(metrics)}</div>`;
-
-  const sectionId = `loc-section-${loc}`;
-  return `
-    <div class="loc-section">
-      <div class="loc-section-header ${meta.cls}" onclick="toggleLocSection('${sectionId}')">
-        <span>${meta.flag} ${meta.label}</span>
-        <span style="font-size:0.8rem;font-weight:400;opacity:0.9;" id="${sectionId}-summary">${summaryText}</span>
-      </div>
-      <div class="loc-section-body" id="${sectionId}">${bodyContent}</div>
-    </div>`;
-}
-
-function toggleLocSection(id) {
-  const el = document.getElementById(id);
-  if (el) el.classList.toggle('collapsed');
-}
-
-function buildSkuTable(metrics) {
-  if (!metrics.length) return `<div class="empty"><div class="icon">📦</div><p>No SKUs found.</p></div>`;
-  const rows = metrics.map(m => {
-    const rowCls  = m.status==='critical'?'row-critical':m.status==='warning'?'row-warning':'row-ok';
-    const badge   = badgeHTML(m.status);
-    const dcls    = m.daysRemaining<=settings.maxLeadTime+settings.safetyBuffer?'days-critical':m.daysRemaining<=settings.targetStockDays?'days-warning':'days-ok';
-    const dTxt    = m.status==='nodata'?'—':m.daysRemaining>=9000?'∞':m.daysRemaining;
-    const rBy     = m.reorderBy&&m.status!=='nodata'?m.reorderBy.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}):'—';
-    const pct     = Math.min(100,(m.currentStock/Math.max(settings.targetStockDays*m.avgDailyRate,m.currentStock,1))*100);
-    const barClr  = m.status==='critical'?'#ef4444':m.status==='warning'?'#f59e0b':'#10b981';
-    const notesH  = m.notes.map(n=>`<span class="badge ${n.includes('CNY')||n.includes('🎆')?'badge-cny':'badge-bf'}" style="margin-right:3px;">${n}</span>`).join('');
-    const contribs = getBundleContributions(m.sku);
-    const contribB = contribs.length ? `<span class="badge badge-nodata" style="margin-left:3px;cursor:help;" title="Demand includes bundle sales from: ${contribs.join(', ')}">🎁 +${contribs.length}</span>` : '';
-    const rateT   = m.avgDailyRate>0?(m.avgDailyRate<1?(m.avgDailyRate*7).toFixed(1)+'/wk':m.avgDailyRate.toFixed(1)+'/day'):'—';
-    return `<tr class="${rowCls}">
-      <td style="font-family:monospace;font-size:0.78rem;color:#4a5568;">${m.sku}</td>
-      <td style="font-weight:500;">${m.name}${contribB}</td>
-      <td style="text-align:right;font-weight:600;">${m.currentStock.toLocaleString()}</td>
-      <td style="text-align:right;color:#718096;">${rateT}</td>
-      <td style="text-align:right;" class="${dcls}">${dTxt}</td>
-      <td><div class="progress-wrap"><div class="progress-bar" style="width:${pct}%;background:${barClr};"></div></div></td>
-      <td>${badge}</td>
-      <td style="text-align:right;font-weight:600;color:${m.suggestedQty>0?'#1a202c':'#a0aec0'};">${m.suggestedQty>0?m.suggestedQty.toLocaleString():'—'}</td>
-      <td style="font-size:0.78rem;color:#718096;">${rBy}</td>
-      <td>${notesH}</td>
-    </tr>`;
-  }).join('');
-  return `<table>
-    <thead><tr>
-      <th>SKU</th><th>Product</th>
-      <th style="text-align:right;">Stock</th>
-      <th style="text-align:right;">Avg Rate</th>
-      <th style="text-align:right;">Days Left</th>
-      <th style="min-width:70px;">Level</th>
-      <th>Status</th>
-      <th style="text-align:right;">Order Qty</th>
-      <th>Reorder By</th>
-      <th>Notes</th>
-    </tr></thead>
-    <tbody>${rows}</tbody>
-  </table>`;
-}
-
-function badgeHTML(status) {
-  const map = {critical:['badge-critical','⚠️ Order Now'],warning:['badge-warning','🔔 Order Soon'],ok:['badge-ok','✓ OK'],nodata:['badge-nodata','— No data']};
-  const [cls,txt] = map[status]||map.nodata;
-  return `<span class="badge ${cls}">${txt}</span>`;
-}
-
-
-// ══════════════════════════════════════════════════════════════════════
-// RENDER — ORDER REPORT
-// ══════════════════════════════════════════════════════════════════════
-function renderReport() {
-  const wrap = document.getElementById('report-wrap');
-  const today = new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'});
-  let html = `<p style="font-size:0.78rem;color:#718096;margin-bottom:16px;">Generated: ${today} · Based on last 12 months of sales history</p>`;
-  let anyOrders = false;
-
-  for (const loc of LOCS) {
-    const meta    = LOC_META[loc];
-    const skus    = getSKUs(loc);
-    const toOrder = skus.map(s => calcMetrics(s, loc)).filter(m => m.suggestedQty > 0 && m.status !== 'nodata');
-    if (!toOrder.length) continue;
-    anyOrders = true;
-    toOrder.sort((a,b) => b.avgDailyRate - a.avgDailyRate);
-    const rows = toOrder.map(m => `<tr>
-      <td style="font-family:monospace;font-size:0.8rem;">${m.sku}</td>
-      <td style="font-weight:500;">${m.name}</td>
-      <td style="text-align:right;">${m.currentStock.toLocaleString()}</td>
-      <td style="text-align:right;">${m.daysRemaining>=9000?'∞':m.daysRemaining}</td>
-      <td style="text-align:right;font-weight:700;font-size:1rem;">${m.suggestedQty.toLocaleString()}</td>
-      <td>${badgeHTML(m.status)}</td>
-      <td style="font-size:0.8rem;">${m.notes.join(', ')||'—'}</td>
-    </tr>`).join('');
-    html += `
-      <div style="margin-bottom:24px;">
-        <div style="background:${meta.color};color:white;padding:10px 16px;border-radius:8px 8px 0 0;font-weight:600;font-size:0.9rem;">${meta.flag} ${meta.label} — ${toOrder.length} SKU${toOrder.length>1?'s':''} to order</div>
-        <div style="overflow-x:auto;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;">
-          <table>
-            <thead><tr>
-              <th>SKU</th><th>Product</th>
-              <th style="text-align:right;">Current Stock</th>
-              <th style="text-align:right;">Days Left</th>
-              <th style="text-align:right;">Suggested Order Qty</th>
-              <th>Status</th><th>Notes</th>
-            </tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
+      <div class="table-header">
+        <h2>${currentTab === 'ALL' ? '🌍 All Locations' : (currentTab === 'USA' ? '🇺🇸 USA' : currentTab === 'UK' ? '🇬🇧 UK' : '🇦🇺 Australia')} — Inventory Status</h2>
+        <div style="display:flex;gap:12px;align-items:center;">
+          <span class="updated">Updated: ${inventoryData.fetched_at || 'unknown'}</span>
+          <button class="refresh-btn" onclick="refreshData()">↻ Refresh</button>
         </div>
-      </div>`;
-  }
-
-  if (!anyOrders) {
-    html += `<div class="empty"><div class="icon">✅</div><h3>All stocked up</h3><p>No items need ordering across any location right now.</p></div>`;
-  }
-  wrap.innerHTML = html;
-}
-
-function exportCSV() {
-  const lines = ['Location,SKU,Product Name,Current Stock,Days Remaining,Avg Daily Rate,Suggested Order Qty,Reorder By,Status,Notes'];
-  let hasRows = false;
-  for (const loc of LOCS) {
-    const skus = getSKUs(loc);
-    skus.map(s => calcMetrics(s, loc)).filter(m=>m.suggestedQty>0).forEach(m => {
-      lines.push([loc,m.sku,`"${m.name}"`,m.currentStock,m.daysRemaining>=9000?'':m.daysRemaining,m.avgDailyRate.toFixed(2),m.suggestedQty,m.reorderBy?m.reorderBy.toLocaleDateString('en-GB'):'',m.status,`"${m.notes.join('; ')}"`].join(','));
-      hasRows = true;
-    });
-  }
-  if (!hasRows) { alert('No items need ordering.'); return; }
-  const a = Object.assign(document.createElement('a'),{href:URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/csv'})),download:`purchase-orders-${new Date().toISOString().slice(0,10)}.csv`});
-  a.click();
-}
-
-function copyToClipboard() {
-  const text = [...document.getElementById('report-wrap').querySelectorAll('tr')].map(r=>[...r.querySelectorAll('th,td')].map(c=>c.textContent.trim()).join('\t')).join('\n');
-  navigator.clipboard.writeText(text).then(()=>alert('Copied to clipboard!'));
-}
-
-
-// ══════════════════════════════════════════════════════════════════════
-// IMPORT LOCATION SELECTOR
-// ══════════════════════════════════════════════════════════════════════
-function setImportLoc(loc) {
-  importLocation = loc;
-  const meta = LOC_META[loc];
-  const label = `${meta.flag} ${meta.label}`;
-  document.querySelectorAll('.import-loc-btn').forEach(b => b.classList.toggle('active', b.dataset.iloc === loc));
-  document.getElementById('paste-loc-label').textContent = label;
-  document.getElementById('shopify-zone-loc').textContent = `Will be imported for: ${label}`;
-  document.getElementById('zoho-zone-loc').textContent    = `Will be imported for: ${label}`;
-  document.getElementById('inv-zone-loc').textContent     = `Will be imported for: ${label}`;
-  document.getElementById('manual-inv-loc-label').textContent = label;
-  updateManualInvTable();
-}
-
-
-// ══════════════════════════════════════════════════════════════════════
-// AUTO-LOAD (localhost, served by fetch_data.py)
-// ══════════════════════════════════════════════════════════════════════
-async function tryAutoLoad() {
-  // Use server-injected data if available
-  if (window._serverData) {
-    const sd = window._serverData;
-    const locs = { AUS: ['orders_aus','inv_aus'], UK: ['orders_uk','inv_uk'], USA: ['orders_usa','inv_usa'] };
-    let loaded = false;
-    for (const [loc, [oKey, iKey]] of Object.entries(locs)) {
-      if (sd[oKey] && sd[oKey].length > 10) {
-        const rows = parseShopifyCSV(sd[oKey]);
-        if (rows.length) { state.shopifyRows[loc] = rows; loaded = true; }
-      }
-      if (sd[iKey] && sd[iKey].length > 10) {
-        const inv = parseInventoryCSV(sd[iKey]);
-        if (Object.keys(inv).length) state.inventory[loc] = inv;
-      }
-    }
-    if (loaded) {
-      state.autoLoaded = true;
-      if (sd.fetched_at) {
-        const d = new Date(sd.fetched_at);
-        state.lastUpdated = d.toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
-      }
-      document.getElementById('live-badge').style.display = 'flex';
-      document.getElementById('autoload-banner').innerHTML = '<div class="alert alert-purple" style="margin-bottom:20px;">✨ <strong>Live data loaded</strong> from Shopify. Last refreshed: <strong>' + (state.lastUpdated||'just now') + '</strong></div>';
-      updateManualInvTable();
-      renderDashboard();
-      return;
-    }
-  }
-  const isLocal = ['localhost','127.0.0.1'].includes(window.location.hostname);
-  // Allow loading from any host (including Render)
-
-  let loaded = false;
-  for (const loc of LOCS) {
-    const locLc = loc.toLowerCase();
-    const files = [
-      { url: `shopify_orders_${locLc}.csv`,   type: 'shopify',    loc },
-      { url: `zoho_invoices_${locLc}.csv`,    type: 'zoho',       loc },
-      { url: `shopify_inventory_${locLc}.csv`,type: 'inventory',  loc },
-    ];
-    for (const { url, type, loc: l } of files) {
-      try {
-        const r = await fetch(url);
-        if (!r.ok) continue;
-        const text = await r.text();
-        if (text.trim().length < 10) continue;
-        if (type === 'shopify') { const rows = parseShopifyCSV(text); if (rows.length) { state.shopifyRows[l] = rows; loaded = true; } }
-        else if (type === 'zoho') { const rows = parseZohoCSV(text); if (rows.length) state.zohoRows[l] = rows; }
-        else { const inv = parseInventoryCSV(text); if (Object.keys(inv).length) state.inventory[l] = inv; }
-      } catch (_) {}
-    }
-  }
-
-  // Fallback: single-file mode (treats shopify_orders.csv as UK)
-  if (!loaded) {
-    const fallbacks = [
-      { url: 'shopify_orders.csv',    type: 'shopify',   loc: 'UK' },
-      { url: 'zoho_invoices.csv',     type: 'zoho',      loc: 'UK' },
-      { url: 'shopify_inventory.csv', type: 'inventory', loc: 'UK' },
-    ];
-    for (const { url, type, loc } of fallbacks) {
-      try {
-        const r = await fetch(url);
-        if (!r.ok) continue;
-        const text = await r.text();
-        if (text.trim().length < 10) continue;
-        if (type === 'shopify') { const rows = parseShopifyCSV(text); if (rows.length) { state.shopifyRows[loc] = rows; loaded = true; } }
-        else if (type === 'zoho') { const rows = parseZohoCSV(text); if (rows.length) state.zohoRows[loc] = rows; }
-        else { const inv = parseInventoryCSV(text); if (Object.keys(inv).length) state.inventory[loc] = inv; }
-      } catch (_) {}
-    }
-  }
-
-  try {
-    const r = await fetch('last_fetch.json');
-    if (r.ok) {
-      const meta = await r.json();
-      if (meta.last_fetch) {
-        const d = new Date(meta.last_fetch);
-        state.lastUpdated = d.toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
-      }
-    }
-  } catch (_) {}
-
-  if (loaded) {
-    state.autoLoaded = true;
-    document.getElementById('live-badge').style.display = 'flex';
-    document.getElementById('autoload-banner').innerHTML = `
-      <div class="alert alert-purple" style="margin-bottom:20px;">
-        ✨ <strong>Live data loaded automatically</strong> from Shopify.
-        ${state.lastUpdated ? `Last refreshed: <strong>${state.lastUpdated}</strong>.` : ''}
-        Run <code>fetch_data.py</code> again to pull the latest data.
-      </div>`;
-    updateManualInvTable();
-    renderDashboard();
-  }
-}
-
-
-// ══════════════════════════════════════════════════════════════════════
-// FILE UPLOAD (manual)
-// ══════════════════════════════════════════════════════════════════════
-function setupUpload(zoneId, inputId, type) {
-  const zone  = document.getElementById(zoneId);
-  const input = document.getElementById(inputId);
-  input.addEventListener('change', e => handleFile(e.target.files[0], type, zone));
-  zone.addEventListener('dragover', e=>{e.preventDefault();zone.classList.add('dragover');});
-  zone.addEventListener('dragleave', ()=>zone.classList.remove('dragover'));
-  zone.addEventListener('drop', e=>{e.preventDefault();zone.classList.remove('dragover');handleFile(e.dataTransfer.files[0],type,zone);});
-}
-
-function handleFile(file, type, zone) {
-  if (!file) return;
-  const loc  = importLocation;
-  const meta = LOC_META[loc];
-  const reader = new FileReader();
-  reader.onload = e => {
-    const text = e.target.result;
-    if (type === 'shopify') {
-      const rows = parseShopifyCSV(text);
-      state.shopifyRows[loc] = rows;
-      state.lastUpdated = new Date().toLocaleTimeString();
-      showStatus('shopify-status', `✓ ${rows.length} Shopify line items loaded for ${meta.flag} ${meta.label}`, 'success');
-      zone.classList.add('upload-success');
-      zone.innerHTML = `<div class="icon">✅</div><p>${file.name} — <strong>${rows.length} items</strong> for ${meta.flag} ${meta.label}</p>`;
-      updateManualInvTable();
-    } else if (type === 'zoho') {
-      const rows = parseZohoCSV(text);
-      state.zohoRows[loc] = rows;
-      showStatus('zoho-status', `✓ ${rows.length} Zoho line items loaded for ${meta.flag} ${meta.label}`, 'success');
-      zone.classList.add('upload-success');
-      zone.innerHTML = `<div class="icon">✅</div><p>${file.name} — <strong>${rows.length} items</strong> for ${meta.flag} ${meta.label}</p>`;
-    } else if (type === 'inventory') {
-      const inv = parseInventoryCSV(text);
-      const n = Object.keys(inv).length;
-      if (!n) { showStatus('inv-status', '⚠️ Could not detect columns — try manual entry below', 'warn'); return; }
-      state.inventory[loc] = inv;
-      showStatus('inv-status', `✓ ${n} SKUs loaded for ${meta.flag} ${meta.label}`, 'success');
-      zone.classList.add('upload-success');
-      zone.innerHTML = `<div class="icon">✅</div><p>${file.name} — <strong>${n} SKUs</strong> for ${meta.flag} ${meta.label}</p>`;
-      updateManualInvTable();
-    }
-  };
-  reader.readAsText(file);
-}
-
-function showStatus(id, msg, type) {
-  document.getElementById(id).innerHTML = `<div class="alert alert-${type==='success'?'success':'warn'}">${msg}</div>`;
-}
-
-function updateManualInvTable() {
-  const loc  = importLocation;
-  const skus = getSKUs(loc);
-  if (!skus.length) return;
-  document.getElementById('manual-inv-wrap').style.display = 'block';
-  const allData = [...getShopifyRows(loc), ...getZohoRows(loc)];
-  const inv = state.inventory[loc] || {};
-  document.getElementById('manual-inv-tbody').innerHTML = skus.map(sku => {
-    const invEntry = inv[sku];
-    const name  = invEntry?.name || (allData.find(r=>r.sku===sku)?.name || sku);
-    const stock = invEntry?.stock || 0;
-    return `<tr>
-      <td style="padding:7px;font-family:monospace;font-size:0.78rem;">${sku}</td>
-      <td style="padding:7px;font-size:0.84rem;">${name}</td>
-      <td style="padding:7px;text-align:right;"><input type="number" id="inv-${sku.replace(/[^a-zA-Z0-9]/g,'_')}" value="${stock}" min="0"/></td>
-    </tr>`;
-  }).join('');
-}
-
-function saveManualInventory() {
-  const loc = importLocation;
-  const skus = getSKUs(loc);
-  const allData = [...getShopifyRows(loc), ...getZohoRows(loc)];
-  const inv = state.inventory[loc] || {};
-  for (const sku of skus) {
-    const el = document.getElementById('inv-'+sku.replace(/[^a-zA-Z0-9]/g,'_'));
-    if (!el) continue;
-    const name = inv[sku]?.name || (allData.find(r=>r.sku===sku)?.name || sku);
-    state.inventory[loc] = state.inventory[loc] || {};
-    state.inventory[loc][sku] = { name, stock: parseFloat(el.value)||0 };
-  }
-  state.lastUpdated = new Date().toLocaleTimeString();
-  showStatus('inv-status', `✓ Stock levels saved for ${LOC_META[loc].flag} ${LOC_META[loc].label}`, 'success');
-}
-
-function clearAllData() {
-  if (!confirm('Clear all imported data for all locations? Settings are kept.')) return;
-  LOCS.forEach(l => { state.shopifyRows[l]=[]; state.zohoRows[l]=[]; state.inventory[l]={}; });
-  state.lastUpdated = null; state.autoLoaded = false;
-  document.getElementById('live-badge').style.display = 'none';
-  document.getElementById('autoload-banner').innerHTML = '';
-  ['shopify-status','zoho-status','inv-status'].forEach(id => document.getElementById(id).innerHTML='');
-  document.getElementById('manual-inv-wrap').style.display = 'none';
-  ['shopify-zone','zoho-zone','inv-zone'].forEach(id => {
-    const z = document.getElementById(id);
-    z.className = 'upload-zone';
-  });
-  document.getElementById('shopify-zone').innerHTML = '<div class="icon">🛍️</div><p><strong>Click to upload</strong> Shopify orders CSV</p><p style="margin-top:4px;font-size:0.75rem;" id="shopify-zone-loc">Will be imported for: 🇬🇧 UK</p>';
-  document.getElementById('zoho-zone').innerHTML    = '<div class="icon">📄</div><p><strong>Click to upload</strong> Zoho invoices CSV</p><p style="margin-top:4px;font-size:0.75rem;" id="zoho-zone-loc">Will be imported for: 🇬🇧 UK</p>';
-  document.getElementById('inv-zone').innerHTML     = '<div class="icon">🗄️</div><p><strong>Click to upload</strong> Shopify inventory CSV</p><p style="margin-top:4px;font-size:0.75rem;" id="inv-zone-loc">Will be imported for: 🇬🇧 UK</p>';
-  setImportLoc('UK');
-  renderDashboard();
-}
-
-function goToDashboard() { renderDashboard(); switchTab('dashboard'); }
-
-
-// ══════════════════════════════════════════════════════════════════════
-// PASTE STOCK UPDATE
-// ══════════════════════════════════════════════════════════════════════
-function parseStockPaste() {
-  const raw     = document.getElementById('stock-paste-input').value.trim();
-  const msgEl   = document.getElementById('paste-result-msg');
-  const preview = document.getElementById('paste-preview');
-  msgEl.style.display = 'none';
-  preview.style.display = 'none';
-
-  if (!raw) {
-    msgEl.textContent = '⚠️ Nothing to parse — paste your stock update first.';
-    msgEl.style.cssText = 'display:inline;color:#b45309;font-size:0.85rem;';
-    return;
-  }
-
-  const loc     = importLocation;
-  const meta    = LOC_META[loc];
-  const aliases = settings.stockAliases || {};
-  const matched = [], unmatched = [];
-
-  for (const line of raw.split('\n')) {
-    const l = line.trim();
-    if (!l) continue;
-    const sep = l.match(/^(.+?)\s*[-–:]\s*([\d,\.]+)\s*$/) || l.match(/^(.+?)\t([\d,\.]+)\s*$/);
-    if (!sep) { unmatched.push({ label: l, reason: 'Could not parse format' }); continue; }
-    const label   = sep[1].trim();
-    const qty     = parseFloat(sep[2].replace(/,/g,''));
-    const labelLc = label.toLowerCase();
-    if (isNaN(qty)) { unmatched.push({ label, reason: 'Invalid number' }); continue; }
-    const sku = aliases[labelLc] || aliases[label] || null;
-    if (!sku) { unmatched.push({ label, reason: 'No SKU alias — add one in Settings → Stock Labels' }); continue; }
-    const existing = (state.inventory[loc] || {})[sku] || { name: sku, stock: 0 };
-    state.inventory[loc] = state.inventory[loc] || {};
-    state.inventory[loc][sku] = { name: existing.name !== sku ? existing.name : sku, stock: qty };
-    matched.push({ label, sku, qty });
-  }
-
-  if (!matched.length && !unmatched.length) {
-    msgEl.textContent = '⚠️ No valid lines found.';
-    msgEl.style.cssText = 'display:inline;color:#b45309;font-size:0.85rem;';
-    return;
-  }
-
-  state.lastUpdated = new Date().toLocaleTimeString();
-  let html = '';
-  if (matched.length) {
-    html += `<div style="margin-bottom:10px;">
-      <strong style="font-size:0.85rem;color:#047857;">✓ ${matched.length} SKUs updated for ${meta.flag} ${meta.label}:</strong>
-      <table style="width:100%;border-collapse:collapse;margin-top:8px;">
+      </div>
+      <div style="overflow-x:auto;">
+      <table>
         <thead><tr>
-          <th style="text-align:left;padding:5px 10px;font-size:0.72rem;text-transform:uppercase;color:#718096;background:#f7fafc;border-bottom:1px solid #e2e8f0;">Label</th>
-          <th style="text-align:left;padding:5px 10px;font-size:0.72rem;text-transform:uppercase;color:#718096;background:#f7fafc;border-bottom:1px solid #e2e8f0;">SKU</th>
-          <th style="text-align:right;padding:5px 10px;font-size:0.72rem;text-transform:uppercase;color:#718096;background:#f7fafc;border-bottom:1px solid #e2e8f0;">New Stock</th>
+          <th>SKU</th><th>Product</th><th>Stock</th><th>Daily Rate</th><th>Days Left</th><th>Status</th><th>Reorder Qty</th>
         </tr></thead>
-        <tbody>${matched.map(r=>`<tr>
-          <td style="padding:5px 10px;font-size:0.84rem;">${r.label}</td>
-          <td style="padding:5px 10px;font-family:monospace;font-size:0.78rem;color:#4a5568;">${r.sku}</td>
-          <td style="padding:5px 10px;text-align:right;font-weight:600;">${r.qty.toLocaleString()}</td>
-        </tr>`).join('')}</tbody>
-      </table></div>`;
-  }
-  if (unmatched.length) {
-    html += `<div>
-      <strong style="font-size:0.85rem;color:#b45309;">⚠️ ${unmatched.length} line${unmatched.length>1?'s':''} not recognised:</strong>
-      <table style="width:100%;border-collapse:collapse;margin-top:8px;">
-        <tbody>${unmatched.map(r=>`<tr>
-          <td style="padding:5px 10px;font-size:0.84rem;color:#718096;">${r.label}</td>
-          <td style="padding:5px 10px;font-size:0.78rem;color:#b45309;">${r.reason}</td>
-        </tr>`).join('')}</tbody>
-      </table></div>`;
-  }
-  preview.innerHTML = `<div style="background:#f7fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;">${html}</div>`;
-  preview.style.display = 'block';
-  updateManualInvTable();
-  renderDashboard();
+        <tbody>
+          ${skus.sort((a,b) => (a.days_remaining||9999) - (b.days_remaining||9999)).map(s => `
+            <tr class="${s.status === 'critical' ? 'critical' : s.status === 'warning' ? 'warning' : ''}">
+              <td style="font-family:monospace;font-size:0.78rem;">${s.sku}</td>
+              <td>${s.name}</td>
+              <td style="font-weight:600;">${(s.stock||0).toLocaleString()}</td>
+              <td>${s.daily_rate > 0 ? s.daily_rate.toFixed(1) + '/day' : '—'}</td>
+              <td class="${s.days_remaining < 30 ? 'days-red' : s.days_remaining < 60 ? 'days-amber' : 'days-green'}">${s.days_remaining >= 999 ? '∞' : s.days_remaining + 'd'}</td>
+              <td><span class="badge-${s.status}">${s.status === 'critical' ? '🔴 Order Now' : s.status === 'warning' ? '🟡 Order Soon' : '🟢 OK'}</span></td>
+              <td style="font-weight:600;">${s.reorder_qty > 0 ? s.reorder_qty.toLocaleString() : '—'}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      </div>
+    </div>`;
+
+  document.getElementById('dashboard').innerHTML = html;
 }
 
-
-// ══════════════════════════════════════════════════════════════════════
-// STOCK ALIAS MANAGEMENT
-// ══════════════════════════════════════════════════════════════════════
-function renderAliasTable() {
-  const wrap = document.getElementById('alias-table-wrap');
-  if (!wrap) return;
-  const aliases = settings.stockAliases || {};
-  const entries = Object.entries(aliases);
-  if (!entries.length) { wrap.innerHTML = '<p style="font-size:0.85rem;color:#a0aec0;">No aliases defined yet.</p>'; return; }
-  const rows = entries.map(([label, sku]) => `<tr>
-    <td style="padding:7px 12px;font-size:0.84rem;font-weight:500;">${label}</td>
-    <td style="padding:7px 12px;font-family:monospace;font-size:0.8rem;color:#4a5568;">${sku}</td>
-    <td style="padding:7px 12px;text-align:right;"><button class="btn btn-danger btn-sm" onclick="removeAlias('${label.replace(/'/g,"\\'")}')">Remove</button></td>
-  </tr>`).join('');
-  wrap.innerHTML = `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">
-    <thead><tr>
-      <th style="text-align:left;padding:7px 12px;font-size:0.7rem;text-transform:uppercase;color:#718096;background:#f7fafc;border-bottom:1px solid #e2e8f0;">Label</th>
-      <th style="text-align:left;padding:7px 12px;font-size:0.7rem;text-transform:uppercase;color:#718096;background:#f7fafc;border-bottom:1px solid #e2e8f0;">SKU</th>
-      <th style="padding:7px 12px;background:#f7fafc;border-bottom:1px solid #e2e8f0;"></th>
-    </tr></thead>
-    <tbody>${rows}</tbody>
-  </table></div>`;
-}
-function removeAlias(label) {
-  if (!confirm(`Remove alias for "${label}"?`)) return;
-  delete settings.stockAliases[label];
-  localStorage.setItem('inv_settings', JSON.stringify(settings));
-  renderAliasTable();
-}
-function addAlias() {
-  const errEl = document.getElementById('alias-add-error'); errEl.style.display='none';
-  const label = document.getElementById('new-alias-label').value.trim();
-  const sku   = document.getElementById('new-alias-sku').value.trim();
-  if (!label) { errEl.textContent='Please enter a label.'; errEl.style.display='block'; return; }
-  if (!sku)   { errEl.textContent='Please enter a SKU.';   errEl.style.display='block'; return; }
-  if (!settings.stockAliases) settings.stockAliases = {};
-  settings.stockAliases[label.toLowerCase()] = sku;
-  localStorage.setItem('inv_settings', JSON.stringify(settings));
-  document.getElementById('new-alias-label').value='';
-  document.getElementById('new-alias-sku').value='';
-  renderAliasTable();
-}
-
-
-// ══════════════════════════════════════════════════════════════════════
-// BUNDLE MANAGEMENT
-// ══════════════════════════════════════════════════════════════════════
-function renderBundleTable() {
-  const wrap = document.getElementById('bundle-table-wrap');
-  if (!wrap) return;
-  const bundles = settings.bundles || {};
-  const entries = Object.entries(bundles);
-  if (!entries.length) { wrap.innerHTML='<p style="font-size:0.85rem;color:#a0aec0;">No bundle mappings defined.</p>'; return; }
-  const rows = entries.map(([bSku, components]) => {
-    const compStr = components.map(c=>`${c.qty>1?c.qty+'× ':''}${c.sku}`).join(' + ');
-    return `<tr>
-      <td style="font-family:monospace;font-size:0.8rem;padding:8px 12px;font-weight:600;">${bSku}</td>
-      <td style="font-size:0.84rem;padding:8px 12px;color:#4a5568;">${compStr}</td>
-      <td style="padding:8px 12px;text-align:right;"><button class="btn btn-danger btn-sm" onclick="removeBundle('${bSku.replace(/'/g,"\\'")}')">Remove</button></td>
-    </tr>`;
-  }).join('');
-  wrap.innerHTML = `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">
-    <thead><tr>
-      <th style="text-align:left;padding:7px 12px;font-size:0.7rem;text-transform:uppercase;color:#718096;background:#f7fafc;border-bottom:1px solid #e2e8f0;">Bundle SKU</th>
-      <th style="text-align:left;padding:7px 12px;font-size:0.7rem;text-transform:uppercase;color:#718096;background:#f7fafc;border-bottom:1px solid #e2e8f0;">Counts As</th>
-      <th style="padding:7px 12px;background:#f7fafc;border-bottom:1px solid #e2e8f0;"></th>
-    </tr></thead>
-    <tbody>${rows}</tbody>
-  </table></div>`;
-}
-function removeBundle(bSku) {
-  if (!confirm(`Remove bundle "${bSku}"?`)) return;
-  delete settings.bundles[bSku];
-  localStorage.setItem('inv_settings', JSON.stringify(settings));
-  renderBundleTable(); renderDashboard();
-}
-function addBundle() {
-  const errEl = document.getElementById('bundle-add-error'); errEl.style.display='none';
-  const bSku = document.getElementById('new-bundle-sku').value.trim();
-  const raw  = document.getElementById('new-bundle-components').value.trim();
-  if (!bSku) { errEl.textContent='Please enter a Bundle SKU.'; errEl.style.display='block'; return; }
-  if (!raw)  { errEl.textContent='Please enter at least one component.'; errEl.style.display='block'; return; }
-  const components = [];
-  for (const line of raw.split('\n')) {
-    const l = line.trim(); if (!l) continue;
-    const m = l.match(/^(.+?)\s*[×xX]\s*(\d+)\s*$/) || l.match(/^(\d+)\s*[×xX]\s*(.+?)\s*$/);
-    if (m) { const a=m[1].trim(),b=m[2].trim(); if(!isNaN(a)){components.push({sku:b,qty:+a});}else{components.push({sku:a,qty:+b});} }
-    else { components.push({sku:l,qty:1}); }
-  }
-  if (!components.length) { errEl.textContent='Could not parse components.'; errEl.style.display='block'; return; }
-  if (!settings.bundles) settings.bundles={};
-  settings.bundles[bSku] = components;
-  localStorage.setItem('inv_settings', JSON.stringify(settings));
-  document.getElementById('new-bundle-sku').value='';
-  document.getElementById('new-bundle-components').value='';
-  renderBundleTable(); renderDashboard();
-}
-
-
-// ══════════════════════════════════════════════════════════════════════
-// TABS
-// ══════════════════════════════════════════════════════════════════════
-function switchTab(name) {
-  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
-  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.id==='tab-'+name));
-}
-
-
-// ══════════════════════════════════════════════════════════════════════
-// INIT
-// ══════════════════════════════════════════════════════════════════════
-document.querySelectorAll('.tab-btn').forEach(btn=>btn.addEventListener('click',()=>switchTab(btn.dataset.tab)));
-setupUpload('shopify-zone','shopify-file','shopify');
-setupUpload('zoho-zone',   'zoho-file',   'zoho');
-setupUpload('inv-zone',    'inv-file',    'inventory');
-loadSettingsToUI();
-renderAliasTable();
-renderBundleTable();
-tryAutoLoad().then(()=>{ if(!state.autoLoaded) renderDashboard(); });
-
-// Force reload every 30 seconds until data appears
-const _waitForData = setInterval(async () => {
-  if (!state.autoLoaded) {
-    await tryAutoLoad();
-    if (state.autoLoaded) {
-      clearInterval(_waitForData);
-      renderDashboard();
+function mergeAllLocs() {
+  const skuMap = {};
+  for (const loc of ['aus','uk','usa']) {
+    const d = inventoryData[loc];
+    if (!d || !d.skus) continue;
+    for (const s of d.skus) {
+      if (!skuMap[s.sku]) skuMap[s.sku] = {...s};
+      else {
+        skuMap[s.sku].stock = (skuMap[s.sku].stock||0) + (s.stock||0);
+        skuMap[s.sku].daily_rate = (skuMap[s.sku].daily_rate||0) + (s.daily_rate||0);
+      }
     }
-  } else {
-    clearInterval(_waitForData);
   }
-}, 10000);
+  const skus = Object.values(skuMap).map(s => {
+    const days = s.daily_rate > 0 ? Math.floor(s.stock / s.daily_rate) : 999;
+    return {...s, days_remaining: days, status: days < 30 ? 'critical' : days < 60 ? 'warning' : 'ok'};
+  });
+  return { skus };
+}
 
+async function refreshData() {
+  document.getElementById('status-badge').textContent = '⟳ Refreshing...';
+  await fetch('/api/refresh');
+  setTimeout(loadData, 2000);
+}
 
-// Auto-refresh data from server every 60 seconds if loaded
-setInterval(async () => {
-  if (state.autoLoaded) {
-    await tryAutoLoad();
-    renderDashboard();
-  }
-}, 60000);
-
+loadData();
+setInterval(loadData, 300000);
 </script>
 </body>
 </html>

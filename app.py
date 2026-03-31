@@ -12,22 +12,16 @@ API_VERSION = "2024-01"
 HEADERS = {"X-Shopify-Access-Token": SHOPIFY_TOKEN}
 CACHE_FILE = Path("/tmp/tnc_data_cache.json")
 CACHE_MAX_AGE = 3600
-_fetch_lock = threading.Lock()
 _fetching = False
 
-# Shopify location ID → dashboard location
 LOCATION_MAP = {
-    35785179194: "usa",  # Fulfillmate USA
-    62605688890: "usa",  # USA ONLY
-    60906668090: "uk",   # FodaFiment by Fodabox
-    11151310884: "aus",  # NSW Warehouse
+    35785179194: "usa", 62605688890: "usa",
+    60906668090: "uk",
+    11151310884: "aus",
 }
-
-# Country code fallback for orders without location data
 COUNTRY_MAP = {
     "US": "usa", "CA": "usa",
-    "GB": "uk", "IE": "uk", "FR": "uk", "DE": "uk", "NL": "uk", "SE": "uk",
-    "NO": "uk", "DK": "uk", "BE": "uk", "CH": "uk", "AT": "uk", "IT": "uk", "ES": "uk", "PT": "uk",
+    "GB": "uk", "IE": "uk", "FR": "uk", "DE": "uk", "NL": "uk",
     "AU": "aus", "NZ": "aus",
 }
 
@@ -53,101 +47,90 @@ def shopify_get_all(endpoint, params):
 
 def fetch_live_data():
     global _fetching
-    with _fetch_lock:
-        if _fetching:
-            return
-        _fetching = True
+    if _fetching:
+        return
+    _fetching = True
     try:
         cutoff = (datetime.utcnow() - timedelta(days=180)).strftime("%Y-%m-%dT00:00:00Z")
-
-        # Fetch orders - split by shipping country
         orders = shopify_get_all("orders.json", {
             "limit": 250, "status": "any", "financial_status": "paid",
             "created_at_min": cutoff,
-            "fields": "id,created_at,line_items,fulfillment_status,financial_status,shipping_address"
+            "fields": "id,created_at,line_items,shipping_address"
         })
 
-        orders_by_loc = {"usa": [], "uk": [], "aus": []}
+        # Count sales per SKU per location
+        sales = {"usa": {}, "uk": {}, "aus": {}}
         for order in orders:
             addr = order.get("shipping_address") or {}
-            country = addr.get("country_code", "")
-            loc = COUNTRY_MAP.get(country, "usa")
+            loc = COUNTRY_MAP.get(addr.get("country_code",""), "usa")
+            age_days = (datetime.utcnow() - datetime.fromisoformat(order["created_at"].replace("Z","").split("+")[0])).days
             for item in order.get("line_items", []):
-                sku = (item.get("sku") or "").strip() or f'variant_{item.get("variant_id","?")}'
-                row = {
-                    "Created at": order["created_at"],
-                    "Lineitem name": item.get("name", ""),
-                    "Lineitem sku": sku,
-                    "Lineitem quantity": item.get("quantity", 0),
-                    "Financial Status": order.get("financial_status", ""),
-                    "Fulfillment Status": order.get("fulfillment_status") or ""
-                }
-                orders_by_loc[loc].append(row)
+                sku = (item.get("sku") or "").strip()
+                if not sku: continue
+                qty = item.get("quantity", 0)
+                if sku not in sales[loc]:
+                    sales[loc][sku] = {"qty": 0, "name": item.get("name",""), "days": max(age_days, 1)}
+                sales[loc][sku]["qty"] += qty
+                sales[loc][sku]["days"] = max(sales[loc][sku]["days"], age_days)
 
         # Fetch products
         products = shopify_get_all("products.json", {"limit": 250, "fields": "id,title,variants"})
 
-        # Fetch inventory levels per location
-        iids = [str(v["inventory_item_id"]) for p in products for v in p.get("variants", []) if v.get("inventory_item_id")]
+        # Fetch inventory by location
+        iids = [str(v["inventory_item_id"]) for p in products for v in p.get("variants",[]) if v.get("inventory_item_id")]
         inv_by_loc = {"usa": {}, "uk": {}, "aus": {}}
+        iid_to_sku = {}
+        for p in products:
+            for v in p.get("variants",[]):
+                if v.get("inventory_item_id") and v.get("sku"):
+                    iid_to_sku[v["inventory_item_id"]] = v["sku"].strip()
 
         for i in range(0, len(iids), 50):
             batch = iids[i:i+50]
-            r = requests.get(
-                f"https://{SHOPIFY_STORE}/admin/api/{API_VERSION}/inventory_levels.json",
-                headers=HEADERS,
-                params={"inventory_item_ids": ",".join(batch), "limit": 250},
-                timeout=30
-            )
+            r = requests.get(f"https://{SHOPIFY_STORE}/admin/api/{API_VERSION}/inventory_levels.json",
+                headers=HEADERS, params={"inventory_item_ids": ",".join(batch), "limit": 250}, timeout=30)
             for level in r.json().get("inventory_levels", []):
                 iid = level["inventory_item_id"]
                 loc_id = level["location_id"]
                 loc = LOCATION_MAP.get(loc_id)
-                if loc:
-                    avail = max(0, level.get("available") or 0)
-                    inv_by_loc[loc][iid] = inv_by_loc[loc].get(iid, 0) + avail
+                if loc and iid in iid_to_sku:
+                    sku = iid_to_sku[iid]
+                    inv_by_loc[loc][sku] = inv_by_loc[loc].get(sku, 0) + max(0, level.get("available") or 0)
             time.sleep(0.35)
 
-        # Build per-location inventory CSVs
-        def build_inv_csv(loc):
-            rows = []
-            for product in products:
-                for variant in product.get("variants", []):
-                    sku = (variant.get("sku") or "").strip()
-                    if not sku: continue
-                    iid = variant.get("inventory_item_id")
-                    available = inv_by_loc[loc].get(iid, 0)
-                    title = product["title"]
-                    vtitle = variant.get("title", "")
-                    if vtitle and vtitle.lower() not in ("default title", "default"):
-                        title = f"{title} – {vtitle}"
-                    rows.append({"SKU": sku, "Title": title, "Available": available})
-            return to_csv(rows, ["SKU","Title","Available"])
-
-        def to_csv(rows, fields):
-            out = io.StringIO()
-            w = csv.DictWriter(out, fieldnames=fields)
-            w.writeheader(); w.writerows(rows)
-            return out.getvalue()
-
-        order_fields = ["Created at","Lineitem name","Lineitem sku","Lineitem quantity","Financial Status","Fulfillment Status"]
+        # Build SKU data per location
+        result = {}
+        for loc in ["usa", "uk", "aus"]:
+            all_skus = set(list(sales[loc].keys()) + list(inv_by_loc[loc].keys()))
+            skus = []
+            for sku in all_skus:
+                stock = inv_by_loc[loc].get(sku, 0)
+                s = sales[loc].get(sku, {})
+                daily_rate = s["qty"] / max(s.get("days", 180), 1) if s.get("qty") else 0
+                days = int(stock / daily_rate) if daily_rate > 0 else 999
+                # Reorder: suggest enough for 90 days
+                reorder = max(0, int(daily_rate * 90) - stock) if daily_rate > 0 else 0
+                status = "critical" if days < 30 else "warning" if days < 60 else "ok"
+                # Get product name
+                name = s.get("name", sku)
+                skus.append({
+                    "sku": sku, "name": name, "stock": stock,
+                    "daily_rate": round(daily_rate, 2),
+                    "days_remaining": min(days, 999),
+                    "status": status,
+                    "reorder_qty": reorder
+                })
+            result[loc] = {"skus": skus}
 
         cache = {
-            "fetched_at": datetime.now().isoformat(),
-            "last_fetch": datetime.now().isoformat(),
-            "orders_csv_usa": to_csv(orders_by_loc["usa"], order_fields),
-            "orders_csv_uk":  to_csv(orders_by_loc["uk"],  order_fields),
-            "orders_csv_aus": to_csv(orders_by_loc["aus"], order_fields),
-            "inventory_csv_usa": build_inv_csv("usa"),
-            "inventory_csv_uk":  build_inv_csv("uk"),
-            "inventory_csv_aus": build_inv_csv("aus"),
-            "order_count": sum(len(v) for v in orders_by_loc.values()),
-            "sku_count": len(products),
-            "counts": {k: len(v) for k, v in orders_by_loc.items()}
+            "fetched_at": datetime.now().strftime("%d %b %Y %H:%M"),
+            "data": result
         }
         with open(CACHE_FILE, "w") as f:
             json.dump(cache, f)
-        print(f"Fetched: USA={len(orders_by_loc['usa'])} UK={len(orders_by_loc['uk'])} AUS={len(orders_by_loc['aus'])}")
+        print(f"Fetch complete: {sum(len(v['skus']) for v in result.values())} SKU-location entries")
+    except Exception as e:
+        print(f"Fetch error: {e}")
     finally:
         _fetching = False
 
@@ -155,8 +138,7 @@ def get_cache():
     if CACHE_FILE.exists():
         with open(CACHE_FILE) as f:
             cache = json.load(f)
-        if (datetime.now() - datetime.fromisoformat(cache["fetched_at"])).total_seconds() < CACHE_MAX_AGE:
-            return cache
+        return cache
     return None
 
 def trigger_refresh():
@@ -165,82 +147,34 @@ def trigger_refresh():
 @app.route("/")
 @app.route("/inventory-dashboard.html")
 def dashboard():
-    from pathlib import Path
-    html = Path("inventory-dashboard.html").read_text()
-    cache = get_cache()
-    if cache:
-        orders_csv = cache.get("orders_csv_aus", "") or cache.get("orders_csv", "")
-        inv_csv = cache.get("inventory_csv_aus", "") or cache.get("inventory_csv", "")
-        # Escape for JS injection
-        import json as _json
-        inject = f"""<script>
-// Pre-loaded data from server
-window._serverData = {{
-  orders_aus: {_json.dumps(cache.get("orders_csv_aus",""))},
-  orders_uk:  {_json.dumps(cache.get("orders_csv_uk",""))},
-  orders_usa: {_json.dumps(cache.get("orders_csv_usa",""))},
-  inv_aus:    {_json.dumps(cache.get("inventory_csv_aus","") or cache.get("inventory_csv",""))},
-  inv_uk:     {_json.dumps(cache.get("inventory_csv_uk","") or cache.get("inventory_csv",""))},
-  inv_usa:    {_json.dumps(cache.get("inventory_csv_usa","") or cache.get("inventory_csv",""))},
-  fetched_at: {_json.dumps(cache.get("fetched_at",""))}
-}};
-</script>"""
-        html = html.replace("</head>", inject + "</head>")
-    return html
+    return send_file("inventory-dashboard.html")
 
-@app.route("/shopify_orders_usa.csv")
-def orders_usa():
+@app.route("/api/dashboard")
+def api_dashboard():
     cache = get_cache()
-    if not cache: trigger_refresh(); return Response("", mimetype="text/csv")
-    return Response(cache.get("orders_csv_usa", ""), mimetype="text/csv")
+    if not cache:
+        trigger_refresh()
+        return jsonify({"status": "fetching", "message": "Data is being fetched, please wait 2 minutes and refresh"})
+    result = cache.get("data", {})
+    result["fetched_at"] = cache.get("fetched_at", "")
+    return jsonify(result)
 
-@app.route("/shopify_orders_uk.csv")
-def orders_uk():
-    cache = get_cache()
-    if not cache: trigger_refresh(); return Response("", mimetype="text/csv")
-    return Response(cache.get("orders_csv_uk", ""), mimetype="text/csv")
-
-@app.route("/shopify_orders_aus.csv")
-def orders_aus():
-    cache = get_cache()
-    if not cache: trigger_refresh(); return Response("", mimetype="text/csv")
-    return Response(cache.get("orders_csv_aus", ""), mimetype="text/csv")
-
-@app.route("/shopify_inventory_usa.csv")
-def inv_usa():
-    cache = get_cache()
-    if not cache: trigger_refresh(); return Response("", mimetype="text/csv")
-    return Response(cache.get("inventory_csv_usa", ""), mimetype="text/csv")
-
-@app.route("/shopify_inventory_uk.csv")
-def inv_uk():
-    cache = get_cache()
-    if not cache: trigger_refresh(); return Response("", mimetype="text/csv")
-    return Response(cache.get("inventory_csv_uk", ""), mimetype="text/csv")
-
-@app.route("/shopify_inventory_aus.csv")
-def inv_aus():
-    cache = get_cache()
-    if not cache: trigger_refresh(); return Response("", mimetype="text/csv")
-    return Response(cache.get("inventory_csv_aus", ""), mimetype="text/csv")
-
-@app.route("/last_fetch.json")
 @app.route("/api/status")
 def status():
     cache = get_cache()
     if cache:
-        return jsonify({"last_fetch": cache["fetched_at"], "order_count": cache.get("order_count",0), "sku_count": cache.get("sku_count",0), "counts": cache.get("counts",{})})
+        return jsonify({"status": "ready", "fetched_at": cache.get("fetched_at","")})
     trigger_refresh()
-    return jsonify({"last_fetch": None, "status": "fetching"})
-
-@app.route("/papaparse.min.js")
-def papaparse():
-    return send_file("papaparse.min.js", mimetype="application/javascript")
+    return jsonify({"status": "fetching"})
 
 @app.route("/api/refresh")
 def refresh():
     trigger_refresh()
     return jsonify({"ok": True})
+
+@app.route("/papaparse.min.js")
+def papaparse():
+    return send_file("papaparse.min.js", mimetype="application/javascript")
 
 if __name__ == "__main__":
     trigger_refresh()
