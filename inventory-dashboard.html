@@ -1514,6 +1514,15 @@ loadSettingsToUI();
 renderAliasTable();
 renderBundleTable();
 tryAutoLoad().then(()=>{ if(!state.autoLoaded) renderDashboard(); });
+
+// Auto-refresh data from server every 60 seconds if loaded
+setInterval(async () => {
+  if (state.autoLoaded) {
+    await tryAutoLoad();
+    renderDashboard();
+  }
+}, 60000);
+
 </script>
 </body>
 </html>
