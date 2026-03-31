@@ -51,7 +51,7 @@ def fetch_live_data():
         return
     _fetching = True
     try:
-        cutoff = (datetime.utcnow() - timedelta(days=180)).strftime("%Y-%m-%dT00:00:00Z")
+        cutoff = (datetime.utcnow() - timedelta(days=60)).strftime("%Y-%m-%dT00:00:00Z")
         orders = shopify_get_all("orders.json", {
             "limit": 250, "status": "any", "financial_status": "paid",
             "created_at_min": cutoff,
