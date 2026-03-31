@@ -83,15 +83,15 @@ def fetch_live_data():
         for p in products:
             for v in p.get("variants",[]):
                 if v.get("inventory_item_id") and v.get("sku"):
-                    iid_to_sku[v["inventory_item_id"]] = v["sku"].strip()
+                    iid_to_sku[str(v["inventory_item_id"])] = v["sku"].strip()
 
         for i in range(0, len(iids), 50):
             batch = iids[i:i+50]
             r = requests.get(f"https://{SHOPIFY_STORE}/admin/api/{API_VERSION}/inventory_levels.json",
                 headers=HEADERS, params={"inventory_item_ids": ",".join(batch), "limit": 250}, timeout=30)
             for level in r.json().get("inventory_levels", []):
-                iid = level["inventory_item_id"]
-                loc_id = level["location_id"]
+                iid = str(level["inventory_item_id"])
+                loc_id = int(level["location_id"])
                 loc = LOCATION_MAP.get(loc_id)
                 if loc and iid in iid_to_sku:
                     sku = iid_to_sku[iid]
