@@ -1515,6 +1515,20 @@ renderAliasTable();
 renderBundleTable();
 tryAutoLoad().then(()=>{ if(!state.autoLoaded) renderDashboard(); });
 
+// Force reload every 30 seconds until data appears
+const _waitForData = setInterval(async () => {
+  if (!state.autoLoaded) {
+    await tryAutoLoad();
+    if (state.autoLoaded) {
+      clearInterval(_waitForData);
+      renderDashboard();
+    }
+  } else {
+    clearInterval(_waitForData);
+  }
+}, 10000);
+
+
 // Auto-refresh data from server every 60 seconds if loaded
 setInterval(async () => {
   if (state.autoLoaded) {
