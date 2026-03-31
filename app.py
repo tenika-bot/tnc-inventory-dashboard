@@ -165,7 +165,28 @@ def trigger_refresh():
 @app.route("/")
 @app.route("/inventory-dashboard.html")
 def dashboard():
-    return send_file("inventory-dashboard.html")
+    from pathlib import Path
+    html = Path("inventory-dashboard.html").read_text()
+    cache = get_cache()
+    if cache:
+        orders_csv = cache.get("orders_csv_aus", "") or cache.get("orders_csv", "")
+        inv_csv = cache.get("inventory_csv_aus", "") or cache.get("inventory_csv", "")
+        # Escape for JS injection
+        import json as _json
+        inject = f"""<script>
+// Pre-loaded data from server
+window._serverData = {{
+  orders_aus: {_json.dumps(cache.get("orders_csv_aus",""))},
+  orders_uk:  {_json.dumps(cache.get("orders_csv_uk",""))},
+  orders_usa: {_json.dumps(cache.get("orders_csv_usa",""))},
+  inv_aus:    {_json.dumps(cache.get("inventory_csv_aus","") or cache.get("inventory_csv",""))},
+  inv_uk:     {_json.dumps(cache.get("inventory_csv_uk","") or cache.get("inventory_csv",""))},
+  inv_usa:    {_json.dumps(cache.get("inventory_csv_usa","") or cache.get("inventory_csv",""))},
+  fetched_at: {_json.dumps(cache.get("fetched_at",""))}
+}};
+</script>"""
+        html = html.replace("</head>", inject + "</head>")
+    return html
 
 @app.route("/shopify_orders_usa.csv")
 def orders_usa():

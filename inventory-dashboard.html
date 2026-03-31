@@ -1138,6 +1138,34 @@ function setImportLoc(loc) {
 // AUTO-LOAD (localhost, served by fetch_data.py)
 // ══════════════════════════════════════════════════════════════════════
 async function tryAutoLoad() {
+  // Use server-injected data if available
+  if (window._serverData) {
+    const sd = window._serverData;
+    const locs = { AUS: ['orders_aus','inv_aus'], UK: ['orders_uk','inv_uk'], USA: ['orders_usa','inv_usa'] };
+    let loaded = false;
+    for (const [loc, [oKey, iKey]] of Object.entries(locs)) {
+      if (sd[oKey] && sd[oKey].length > 10) {
+        const rows = parseShopifyCSV(sd[oKey]);
+        if (rows.length) { state.shopifyRows[loc] = rows; loaded = true; }
+      }
+      if (sd[iKey] && sd[iKey].length > 10) {
+        const inv = parseInventoryCSV(sd[iKey]);
+        if (Object.keys(inv).length) state.inventory[loc] = inv;
+      }
+    }
+    if (loaded) {
+      state.autoLoaded = true;
+      if (sd.fetched_at) {
+        const d = new Date(sd.fetched_at);
+        state.lastUpdated = d.toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+      }
+      document.getElementById('live-badge').style.display = 'flex';
+      document.getElementById('autoload-banner').innerHTML = '<div class="alert alert-purple" style="margin-bottom:20px;">✨ <strong>Live data loaded</strong> from Shopify. Last refreshed: <strong>' + (state.lastUpdated||'just now') + '</strong></div>';
+      updateManualInvTable();
+      renderDashboard();
+      return;
+    }
+  }
   const isLocal = ['localhost','127.0.0.1'].includes(window.location.hostname);
   // Allow loading from any host (including Render)
 
