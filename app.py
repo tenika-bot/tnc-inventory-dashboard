@@ -15,11 +15,20 @@ CACHE_MAX_AGE = 3600
 _fetch_lock = threading.Lock()
 _fetching = False
 
-# Country → location mapping
+# Shopify location ID → dashboard location
+LOCATION_MAP = {
+    35785179194: "usa",  # Fulfillmate USA
+    62605688890: "usa",  # USA ONLY
+    60906668090: "uk",   # FodaFiment by Fodabox
+    11151310884: "aus",  # NSW Warehouse
+}
+
+# Country code fallback for orders without location data
 COUNTRY_MAP = {
-    "US": "usa", "CA": "usa",  # North America → USA warehouse
-    "GB": "uk", "IE": "uk", "FR": "uk", "DE": "uk", "NL": "uk", "SE": "uk", "NO": "uk", "DK": "uk", "BE": "uk", "CH": "uk", "AT": "uk", "IT": "uk", "ES": "uk", "PT": "uk",  # Europe → UK warehouse
-    "AU": "aus", "NZ": "aus",  # Oceania → AUS warehouse
+    "US": "usa", "CA": "usa",
+    "GB": "uk", "IE": "uk", "FR": "uk", "DE": "uk", "NL": "uk", "SE": "uk",
+    "NO": "uk", "DK": "uk", "BE": "uk", "CH": "uk", "AT": "uk", "IT": "uk", "ES": "uk", "PT": "uk",
+    "AU": "aus", "NZ": "aus",
 }
 
 def shopify_get_all(endpoint, params):
@@ -50,18 +59,19 @@ def fetch_live_data():
         _fetching = True
     try:
         cutoff = (datetime.utcnow() - timedelta(days=180)).strftime("%Y-%m-%dT00:00:00Z")
+
+        # Fetch orders - split by shipping country
         orders = shopify_get_all("orders.json", {
             "limit": 250, "status": "any", "financial_status": "paid",
             "created_at_min": cutoff,
             "fields": "id,created_at,line_items,fulfillment_status,financial_status,shipping_address"
         })
 
-        # Split orders by location
         orders_by_loc = {"usa": [], "uk": [], "aus": []}
         for order in orders:
             addr = order.get("shipping_address") or {}
             country = addr.get("country_code", "")
-            loc = COUNTRY_MAP.get(country, "usa")  # default to USA if unknown
+            loc = COUNTRY_MAP.get(country, "usa")
             for item in order.get("line_items", []):
                 sku = (item.get("sku") or "").strip() or f'variant_{item.get("variant_id","?")}'
                 row = {
@@ -74,10 +84,13 @@ def fetch_live_data():
                 }
                 orders_by_loc[loc].append(row)
 
-        # Fetch products & inventory
+        # Fetch products
         products = shopify_get_all("products.json", {"limit": 250, "fields": "id,title,variants"})
+
+        # Fetch inventory levels per location
         iids = [str(v["inventory_item_id"]) for p in products for v in p.get("variants", []) if v.get("inventory_item_id")]
-        inv_levels = {}
+        inv_by_loc = {"usa": {}, "uk": {}, "aus": {}}
+
         for i in range(0, len(iids), 50):
             batch = iids[i:i+50]
             r = requests.get(
@@ -88,19 +101,28 @@ def fetch_live_data():
             )
             for level in r.json().get("inventory_levels", []):
                 iid = level["inventory_item_id"]
-                inv_levels[iid] = inv_levels.get(iid, 0) + max(0, level.get("available") or 0)
+                loc_id = level["location_id"]
+                loc = LOCATION_MAP.get(loc_id)
+                if loc:
+                    avail = max(0, level.get("available") or 0)
+                    inv_by_loc[loc][iid] = inv_by_loc[loc].get(iid, 0) + avail
             time.sleep(0.35)
 
-        inv_rows = []
-        for product in products:
-            for variant in product.get("variants", []):
-                sku = (variant.get("sku") or "").strip()
-                if not sku: continue
-                title = product["title"]
-                vtitle = variant.get("title", "")
-                if vtitle and vtitle.lower() not in ("default title", "default"):
-                    title = f"{title} – {vtitle}"
-                inv_rows.append({"SKU": sku, "Title": title, "Available": inv_levels.get(variant.get("inventory_item_id"), 0)})
+        # Build per-location inventory CSVs
+        def build_inv_csv(loc):
+            rows = []
+            for product in products:
+                for variant in product.get("variants", []):
+                    sku = (variant.get("sku") or "").strip()
+                    if not sku: continue
+                    iid = variant.get("inventory_item_id")
+                    available = inv_by_loc[loc].get(iid, 0)
+                    title = product["title"]
+                    vtitle = variant.get("title", "")
+                    if vtitle and vtitle.lower() not in ("default title", "default"):
+                        title = f"{title} – {vtitle}"
+                    rows.append({"SKU": sku, "Title": title, "Available": available})
+            return to_csv(rows, ["SKU","Title","Available"])
 
         def to_csv(rows, fields):
             out = io.StringIO()
@@ -109,7 +131,6 @@ def fetch_live_data():
             return out.getvalue()
 
         order_fields = ["Created at","Lineitem name","Lineitem sku","Lineitem quantity","Financial Status","Fulfillment Status"]
-        inv_fields = ["SKU","Title","Available"]
 
         cache = {
             "fetched_at": datetime.now().isoformat(),
@@ -117,14 +138,16 @@ def fetch_live_data():
             "orders_csv_usa": to_csv(orders_by_loc["usa"], order_fields),
             "orders_csv_uk":  to_csv(orders_by_loc["uk"],  order_fields),
             "orders_csv_aus": to_csv(orders_by_loc["aus"], order_fields),
-            "inventory_csv":  to_csv(inv_rows, inv_fields),
+            "inventory_csv_usa": build_inv_csv("usa"),
+            "inventory_csv_uk":  build_inv_csv("uk"),
+            "inventory_csv_aus": build_inv_csv("aus"),
             "order_count": sum(len(v) for v in orders_by_loc.values()),
-            "sku_count": len(inv_rows),
+            "sku_count": len(products),
             "counts": {k: len(v) for k, v in orders_by_loc.items()}
         }
         with open(CACHE_FILE, "w") as f:
             json.dump(cache, f)
-        print(f"Fetched: USA={len(orders_by_loc['usa'])} UK={len(orders_by_loc['uk'])} AUS={len(orders_by_loc['aus'])} SKUs={len(inv_rows)}")
+        print(f"Fetched: USA={len(orders_by_loc['usa'])} UK={len(orders_by_loc['uk'])} AUS={len(orders_by_loc['aus'])}")
     finally:
         _fetching = False
 
@@ -162,14 +185,23 @@ def orders_aus():
     if not cache: trigger_refresh(); return Response("", mimetype="text/csv")
     return Response(cache.get("orders_csv_aus", ""), mimetype="text/csv")
 
-@app.route("/shopify_inventory_aus.csv")
-@app.route("/shopify_inventory_uk.csv")
 @app.route("/shopify_inventory_usa.csv")
-@app.route("/api/inventory")
-def inventory_csv():
+def inv_usa():
     cache = get_cache()
     if not cache: trigger_refresh(); return Response("", mimetype="text/csv")
-    return Response(cache.get("inventory_csv", ""), mimetype="text/csv")
+    return Response(cache.get("inventory_csv_usa", ""), mimetype="text/csv")
+
+@app.route("/shopify_inventory_uk.csv")
+def inv_uk():
+    cache = get_cache()
+    if not cache: trigger_refresh(); return Response("", mimetype="text/csv")
+    return Response(cache.get("inventory_csv_uk", ""), mimetype="text/csv")
+
+@app.route("/shopify_inventory_aus.csv")
+def inv_aus():
+    cache = get_cache()
+    if not cache: trigger_refresh(); return Response("", mimetype="text/csv")
+    return Response(cache.get("inventory_csv_aus", ""), mimetype="text/csv")
 
 @app.route("/last_fetch.json")
 @app.route("/api/status")
