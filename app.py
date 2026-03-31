@@ -212,6 +212,10 @@ def status():
     trigger_refresh()
     return jsonify({"last_fetch": None, "status": "fetching"})
 
+@app.route("/papaparse.min.js")
+def papaparse():
+    return send_file("papaparse.min.js", mimetype="application/javascript")
+
 @app.route("/api/refresh")
 def refresh():
     trigger_refresh()
