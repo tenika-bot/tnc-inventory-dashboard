@@ -1139,7 +1139,7 @@ function setImportLoc(loc) {
 // ══════════════════════════════════════════════════════════════════════
 async function tryAutoLoad() {
   const isLocal = ['localhost','127.0.0.1'].includes(window.location.hostname);
-  if (!isLocal) return;
+  // Allow loading from any host (including Render)
 
   let loaded = false;
   for (const loc of LOCS) {
