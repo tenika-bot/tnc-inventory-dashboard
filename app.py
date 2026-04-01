@@ -10,8 +10,30 @@ SHOPIFY_STORE = "tattoonumbingcreamco.myshopify.com"
 SHOPIFY_TOKEN = os.environ.get("SHOPIFY_TOKEN", "")
 API_VERSION = "2024-01"
 HEADERS = {"X-Shopify-Access-Token": SHOPIFY_TOKEN}
-CACHE_FILE = Path("/tmp/tnc_data_cache.json")
+import sqlite3
+DB_FILE = Path("/opt/render/project/src/inventory_cache.db") if Path("/opt/render").exists() else Path("inventory_cache.db")
 CACHE_MAX_AGE = 3600
+
+def db_get():
+    try:
+        conn = sqlite3.connect(str(DB_FILE))
+        row = conn.execute("SELECT data, fetched_at FROM cache ORDER BY id DESC LIMIT 1").fetchone()
+        conn.close()
+        if row:
+            return json.loads(row[0]), row[1]
+    except: pass
+    return None, None
+
+def db_set(data, fetched_at):
+    try:
+        conn = sqlite3.connect(str(DB_FILE))
+        conn.execute("CREATE TABLE IF NOT EXISTS cache (id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT, fetched_at TEXT)")
+        conn.execute("DELETE FROM cache")
+        conn.execute("INSERT INTO cache (data, fetched_at) VALUES (?, ?)", (json.dumps(data), fetched_at))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"DB error: {e}")
 _fetching = False
 
 LOCATION_MAP = {
@@ -122,12 +144,8 @@ def fetch_live_data():
                 })
             result[loc] = {"skus": skus}
 
-        cache = {
-            "fetched_at": datetime.now().strftime("%d %b %Y %H:%M"),
-            "data": result
-        }
-        with open(CACHE_FILE, "w") as f:
-            json.dump(cache, f)
+        fetched_at = datetime.now().strftime("%d %b %Y %H:%M")
+        db_set(result, fetched_at)
         print(f"Fetch complete: {sum(len(v['skus']) for v in result.values())} SKU-location entries")
     except Exception as e:
         print(f"Fetch error: {e}")
@@ -135,10 +153,9 @@ def fetch_live_data():
         _fetching = False
 
 def get_cache():
-    if CACHE_FILE.exists():
-        with open(CACHE_FILE) as f:
-            cache = json.load(f)
-        return cache
+    data, fetched_at = db_get()
+    if data:
+        return {"data": data, "fetched_at": fetched_at}
     return None
 
 def trigger_refresh():
@@ -158,6 +175,8 @@ def api_dashboard():
     result = cache.get("data", {})
     result["fetched_at"] = cache.get("fetched_at", "")
     return jsonify(result)
+
+
 
 @app.route("/api/status")
 def status():
